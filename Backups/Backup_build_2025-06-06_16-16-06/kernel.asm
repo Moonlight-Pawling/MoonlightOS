@@ -2,20 +2,12 @@
 ; kernel.asm con depuración visual extensa
 ; ============================================
 
-BITS 16]
-section .early16
+section .early16 progbits alloc exec
+[BITS 16]
 
 global start16
+
 start16:
-    ; Mostrar caracteres de diagnóstico al inicio
-    mov ax, 0xB800       ; Segmento de video
-    mov es, ax
-    
-    ; Escribir "K1" en verde brillante
-    mov byte [es:0], 'K'
-    mov byte [es:1], 0x0A
-    mov byte [es:2], '1'
-    mov byte [es:3], 0x0A
     ; ---- MODO REAL (16 bits) ----
     ; Escribir mensaje de inicio en modo real
     mov ax, 0xB800
@@ -62,14 +54,8 @@ start16:
     or eax, 1                ; PE bit
     mov cr0, eax
 
-    mov byte [es:6], 'M'
-    mov byte [es:7], 0x0F
-    
-    ; Antes de habilitar A20:
-    mov byte [es:8], 'A'
-    mov byte [es:9], 0x0F
-    
     ; Salto a modo protegido - CORREGIDO
+    ; jmp 0x08:protected_mode
     db 0x66, 0xEA            ; Opcode para far jump 32-bit
     dd protected_mode        ; Offset de 32 bits
     dw 0x08                  ; Selector de segmento
@@ -191,6 +177,7 @@ protected_mode:
     mov dword [0xB8020], 0x0F38  ; '8'
     
     ; Salto a modo 64 bits - CORREGIDO
+    ; jmp 0x18:long_mode
     db 0xEA                ; Opcode para far jump en modo 32-bit
     dd long_mode           ; Offset de 32 bits
     dw 0x18                ; Selector de segmento
