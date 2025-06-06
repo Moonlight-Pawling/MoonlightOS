@@ -1,33 +1,42 @@
+// Kernel en modo protegido (32 bits)
 #include <stdint.h>
 
-void kernel_main(void) {
-    // Inmediato marcador para confirmar entrada al código C
-    volatile uint16_t *vga = (volatile uint16_t*)0xB8000;
+// Define un puntero a la memoria de video
+volatile uint16_t* video = (volatile uint16_t*)0xB8000;
+
+// Limpia la pantalla completa
+void clear_screen(uint8_t color_attr) {
+    // El atributo de color se coloca en los 8 bits altos
+    // El caracter ' ' (espacio) es 0x20
+    uint16_t blank = ((uint16_t)color_attr << 8) | 0x20;
     
-    // Llenar toda la pantalla con un color distintivo para depuración
-    for (int i = 0; i < 80*25; i++) {
-        vga[i] = (uint16_t)'C' | (0x1E << 8); // C amarilla sobre azul
+    // Llenar toda la pantalla (80x25=2000 caracteres)
+    for (int i = 0; i < 2000; i++) {
+        video[i] = blank;
     }
-    
-    // Pequeña pausa para ver el cambio de pantalla
-    for (volatile int i = 0; i < 10000000; i++);
-    
-    // Mensaje de éxito claro
-    const char *msg = "*** KERNEL EN C EJECUTÁNDOSE EN MODO 64-BIT ***";
-    
-    // Limpiar la pantalla 
-    for (int i = 0; i < 80*25; i++) {
-        vga[i] = (uint16_t)' ' | (0x07 << 8); // Gris sobre negro
+}
+
+// Escribe un carácter en la memoria de video
+void putchar(int x, int y, char c, uint8_t color) {
+    const int index = y * 80 + x;
+    video[index] = ((uint16_t)color << 8) | c;
+}
+
+// Escribe una cadena en pantalla
+void print(int x, int y, const char* str, uint8_t color) {
+    for (int i = 0; str[i]; i++) {
+        putchar(x + i, y, str[i], color);
     }
+}
+
+// Punto de entrada del kernel
+void kernel_main() {
+    // Limpiar la pantalla (fondo negro, texto gris claro)
+    clear_screen(0x07);
     
-    // Escribir mensaje centrado en la línea 10
-    int offset = 10*80 + (80 - 43) / 2;
-    for (int i = 0; msg[i]; i++) {
-        vga[offset + i] = (uint16_t)msg[i] | (0x0F << 8); // Blanco brillante
-    }
+    // Mensaje en la primera línea
+    print(0, 0, "Kernel C en 32-bits", 0x0A);
     
-    // Bucle infinito
-    while (1) {
-        __asm__("hlt");
-    }
+    // Mensaje en la segunda línea
+    print(0, 1, "Sistema estabilizado!", 0x0F);
 }

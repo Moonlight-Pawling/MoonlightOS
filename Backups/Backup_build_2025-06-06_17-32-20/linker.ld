@@ -1,4 +1,4 @@
-OUTPUT_FORMAT("elf32-i386")
+OUTPUT_FORMAT("elf64-x86-64")
 ENTRY(start16)
 
 SECTIONS
@@ -11,25 +11,16 @@ SECTIONS
         *(.early16)
     }
     
-    /* Incluir todas las secciones necesarias */
-    .text : {
-        *(.text)
-    }
-    
+    /* Incluir sección de datos */
     .data : {
         *(.data)
     }
     
-    .bss : {
-        *(.bss)
-    }
-    
-    .rodata : {
-        *(.rodata)
-    }
-    
-    /* Descartar el resto */
+    /* Descartar el resto por ahora */
     /DISCARD/ : {
+        *(.text)
+        *(.rodata)
+        *(.bss)
         *(.comment)
         *(.note*)
         *(.eh_frame*)
