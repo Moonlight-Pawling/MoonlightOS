@@ -14,13 +14,13 @@ fi
 # 1) Limpiar builds anteriores
 rm -f bootloader.bin kernel_trampoline.o kernel.elf kernel.o kernel.bin hdd.img
 
-# 2) Compilar kernel.asm (stub 16→32→64 bits) como ELF64
+# 2) Compilar kernel.asm con opciones de depuración
 echo "Compilando kernel.asm (stub 16/32/64 bits) como ELF64..."
-nasm -f elf64 kernel.asm -o kernel_trampoline.o
+nasm -f elf64 -g -F dwarf kernel.asm -o kernel_trampoline.o
 
-# 3) Compilar kernel.c (modo largo, C)
+# 3) Compilar kernel.c con opciones de depuración
 echo "Compilando kernel en C (modo largo)..."
-x86_64-elf-gcc -ffreestanding -mno-red-zone -m64 -c kernel.c -o kernel.o
+x86_64-elf-gcc -ffreestanding -mno-red-zone -m64 -g -c kernel.c -o kernel.o
 
 # 4) Linkear kernel_trampoline.o + kernel.o en kernel.elf
 echo "Linkeando kernel completo con linker.ld..."
@@ -51,7 +51,6 @@ dd if=bootloader.bin of=hdd.img bs=512 seek=0 conv=notrunc
 echo "Escribiendo kernel.bin en sector 1..."
 dd if=kernel.bin of=hdd.img bs=512 seek=1 conv=notrunc
 
-# 11) Iniciar QEMU
+# 11) Iniciar QEMU (nuevas opciones para depuración)
 echo "Iniciando QEMU desde hdd.img..."
-qemu-system-x86_64 -drive format=raw,file=hdd.img
-
+qemu-system-x86_64 -drive format=raw,file=hdd.img -monitor stdio
