@@ -14,11 +14,11 @@ fi
 # 1) Limpiar builds anteriores
 rm -f bootloader.bin kernel_trampoline.o kernel.elf kernel.o kernel.bin hdd.img
 
-# 2) Compilar kernel.asm con opciones de depuración
+# 2) Compilar kernel.asm (stub 16→32→64 bits) como ELF64
 echo "Compilando kernel.asm (stub 16/32/64 bits) como ELF64..."
-nasm -f elf64 -g -F dwarf kernel.asm -o kernel_trampoline.o
+nasm -f elf64 -g kernel.asm -o kernel_trampoline.o
 
-# 3) Compilar kernel.c con opciones de depuración
+# 3) Compilar kernel.c (modo largo, C)
 echo "Compilando kernel en C (modo largo)..."
 x86_64-elf-gcc -ffreestanding -mno-red-zone -m64 -g -c kernel.c -o kernel.o
 
@@ -51,6 +51,8 @@ dd if=bootloader.bin of=hdd.img bs=512 seek=0 conv=notrunc
 echo "Escribiendo kernel.bin en sector 1..."
 dd if=kernel.bin of=hdd.img bs=512 seek=1 conv=notrunc
 
-# 11) Iniciar QEMU (nuevas opciones para depuración)
+# 11) Iniciar QEMU con opciones explícitas de arranque
 echo "Iniciando QEMU desde hdd.img..."
-qemu-system-x86_64 -drive format=raw,file=hdd.img -monitor stdio
+# Mantén tu script build.sh actual con una opción de QEMU
+# Asegúrate de usar el modo de disquete por ahora
+qemu-system-x86_64 -fda hdd.img -boot a -monitor stdio
