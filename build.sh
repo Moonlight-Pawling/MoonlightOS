@@ -52,5 +52,8 @@ echo "Escribiendo kernel.bin en sector 1..."
 dd if=kernel.bin of=hdd.img bs=512 seek=1 conv=notrunc
 
 # 11) Iniciar QEMU
-echo "Iniciando QEMU desde hdd.img..."
-qemu-system-x86_64 -drive format=raw,file=hdd.img
+# Al final de build.sh
+if [[ "$1" != "norun" ]]; then
+    echo "Iniciando QEMU desde hdd.img..."
+    qemu-system-x86_64 -drive format=raw,file=hdd.img
+fi
