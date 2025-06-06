@@ -35,14 +35,8 @@ void kernel_main() {
     clear_screen(0x07);
     
     // Mensaje en la primera línea
-    print(0, 0, "Kernel C en 32 bits", 0x0A);
+    print(0, 0, "Kernel C en 32-bits", 0x0A);
     
     // Mensaje en la segunda línea
     print(0, 1, "Sistema estabilizado!", 0x0F);
-    print(0, 2, "Bienvenido a Moonlight OS", 0x0B);
-    print(0, 3, "Desarrollado por Moonlight-Pawling", 0x0C);
-    while (1)
-    {
-
-    }
 }

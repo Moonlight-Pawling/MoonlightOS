@@ -39,8 +39,8 @@ void kernel_main() {
     
     // Mensaje en la segunda línea
     print(0, 1, "Sistema estabilizado!", 0x0F);
-    print(0, 2, "Bienvenido a Moonlight OS", 0x0B);
-    print(0, 3, "Desarrollado por Moonlight-Pawling", 0x0C);
+    print(0, 2, "Bienvenido a Moonlight OS", 0xAA);
+    print(0, 3, "Desarrollado por Moonlight-Pawling", 0xBB);
     while (1)
     {
 
