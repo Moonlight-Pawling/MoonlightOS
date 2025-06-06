@@ -51,8 +51,6 @@ dd if=bootloader.bin of=hdd.img bs=512 seek=0 conv=notrunc
 echo "Escribiendo kernel.bin en sector 1..."
 dd if=kernel.bin of=hdd.img bs=512 seek=1 conv=notrunc
 
-# 11) Iniciar QEMU con opciones explícitas de arranque
+# 11) Iniciar QEMU usando la opción que funciona demostrada
 echo "Iniciando QEMU desde hdd.img..."
-# Mantén tu script build.sh actual con una opción de QEMU
-# Asegúrate de usar el modo de disquete por ahora
-qemu-system-x86_64 -fda hdd.img -boot a -monitor stdio
+qemu-system-x86_64 -drive file=hdd.img,format=raw,index=0,media=disk -boot c
