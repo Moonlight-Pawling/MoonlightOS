@@ -1,0 +1,97 @@
+# --------------------------------------------------------------------
+# .gitignore para proyecto de SO ultra mínimo (NASM + C + build scripts)
+# --------------------------------------------------------------------
+
+# 1) Ignorar archivos generados por GCC/GCC-elf (compilación de C)
+#    - *.o      → objetos .o generados por x86_64-elf-gcc
+#    - *.elf    → binario ELF antes de convertir a plano
+#    - *.bin    → binarios planos (kernel.bin, bootloader.bin)
+#    - *.img    → imagen de disco (hdd.img)
+#    - *.map    → mapas de enlace (si llegas a generar .map)
+#    - *.dSYM   → símbolos de depuración en macOS (si corriges y usas clang/ld)
+*.o
+*.elf
+*.bin
+*.img
+*.map
+*.dSYM/
+
+# 2) Ignorar artefactos de NASM / ensamblador
+#    - *.lst    → listados opcionales que genera NASM con -l
+#    - *.inc    → si generas includes temporales (kernel_size.inc u otros)
+#    - *.obj    → en caso de usar algún formato intermedio (aunque en nuestro flujo no los hay)
+*.lst
+*.inc
+*.obj
+
+# 3) Ignorar artefactos del linker / objcopy
+#    - kernel_trampoline.o → objeto de NASM que no necesitas versionar
+#      (pero ya está cubierto por *.o; lo incluyo explícito por claridad)
+kernel_trampoline.o
+
+# 4) Ignorar binarios y librerías de terceros (si los hubiera)
+#    - Por si incluyes alguna librería preempacada o submódulo con su build
+#      (p.ej., si más adelante añades alguna librería precompilada .a)
+*.a
+*.so
+*.dll
+*.exe
+
+# 5) Ignorar archivos temporales del sistema y editores
+#    - ~/.swp, ~, .#*, *~  → swap de vim/emacs, copias temporales
+#    - .DS_Store           → macOS
+#    - Thumbs.db           → Windows Explorer
+#    - .vscode/            → configuración de VS Code (si no quieres compartirla)
+#    - *.sublime-*         → archivos de caché de Sublime Text
+#    - *.idea/             → IDE IntelliJ/CLion/PhpStorm (si lo llegas a usar)
+#    - *.project, *.cproject → Eclipse u otros IDEs
+#    - bin/                 → carpeta de binarios locales (si la usas)
+#    - build/               → carpeta de build temporal (si la configuras)
+#    - tmp/, temp/          → repositorios temporales
+#    - *.log                → logs de compilación o ejecución
+#    - *.swp, *~            → archivos swap o backups de editores
+#    - .#*                  → archivos lock de Emacs
+#    - .DS_Store
+#    - Thumbs.db
+*.swp
+*~
+.#*
+.DS_Store
+Thumbs.db
+
+.vscode/
+*.sublime-*
+.idea/
+*.project
+*.cproject
+
+bin/
+build/
+tmp/
+temp/
+*.log
+
+# 6) Ignorar registros de QEMU (si llegas a usarlos)
+#    - monitor.log, qemu*.log → logs que QEMU pudiera generar con -monitor
+monitor.log
+qemu*.log
+
+# 7) Ignorar posibles archivos de configuración de shell/scripts
+#    - .env                 → variables de entorno si las usas
+#    - *.sh~                → backups de tus scripts
+.env
+*.sh~
+
+# 8) Ignorar archivos de pruebas o demostraciones locales
+#    - tests/coverage/, coverage-reports/ → si usas herramientas de cobertura
+coverage-reports/
+tests/coverage/
+
+# 9) Ignorar cualquier otro artefacto de sistema operativo
+#    - core, core.*           → dumps de memoria (core dumps)
+core
+core.*
+
+# -------------------------
+# Fin de .gitignore
+# -------------------------
