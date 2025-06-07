@@ -40,8 +40,12 @@ chmod +x build.sh  # Asegurar que el script sea ejecutable
 ./build.sh
 ```
 
-El script te preguntará si deseas guardar una copia de compilaciones anteriores la copia se realiza junto con el propio build.sh, con la finalidad de que se pueda replicar la compilación con los parámetros exactos con los que fueron generados.
-Responda 'y' para crear un respaldo o 'n' para no guardar copias.
+El script te preguntará si deseas guardar una copia de compilaciones anteriores, útil si se quiere guardar un estado funcional antes de implementar modificaciones. La copia se realiza junto con el propio `build.sh`, ya que para replicar de forma correcta el estado que se espera, se deben incluir los parámetros exactos de compilación con los que los archivos fueron generados.
+```bash
+=== MoonlightOS Build System ===
+¿Guardar copia de builds anteriores? (y/n): 
+```
+
 
 ### Proceso de compilación
 
