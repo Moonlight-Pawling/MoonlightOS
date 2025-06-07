@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "=== MoonlightOS 64-bit Build System ==="
+echo "=== MoonlightOS Build System ==="
 
 read -p "¿Guardar copia de builds anteriores? (y/n): " choice
 if [[ "$choice" =~ ^[Yy]$ ]]; then
