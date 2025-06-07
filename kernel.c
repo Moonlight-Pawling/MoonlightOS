@@ -1,4 +1,4 @@
-// Kernel en modo protegido (32 bits)
+// Kernel en modo largo (64 bits) - MoonlightOS
 #include <stdint.h>
 
 // Define un puntero a la memoria de video
@@ -6,11 +6,7 @@ volatile uint16_t* video = (volatile uint16_t*)0xB8000;
 
 // Limpia la pantalla completa
 void clear_screen(uint8_t color_attr) {
-    // El atributo de color se coloca en los 8 bits altos
-    // El caracter ' ' (espacio) es 0x20
     uint16_t blank = ((uint16_t)color_attr << 8) | 0x20;
-    
-    // Llenar toda la pantalla (80x25=2000 caracteres)
     for (int i = 0; i < 2000; i++) {
         video[i] = blank;
     }
@@ -29,30 +25,115 @@ void print(int x, int y, const char* str, uint8_t color) {
     }
 }
 
-// Punto de entrada del kernel
-void kernel_main() {
-    // Limpiar la pantalla (fondo negro, texto gris claro)
-    clear_screen(0x07);
+// Función para convertir número a string hexadecimal
+void uint64_to_hex(uint64_t value, char* buffer) {
+    const char hex_chars[] = "0123456789ABCDEF";
+    buffer[0] = '0';
+    buffer[1] = 'x';
     
-    // Mensaje en la primera línea
-    print(0, 0, "Kernel C en 32 bits", 0x0A);
-    uint32_t counter = 0;
-    char heartbeat[] = {'|', '/', '-', '\\'};
-    // Mensaje en la segunda línea
-    print(0, 1, "Sistema estabilizado!", 0x0F);
-    print(0, 2, "Bienvenido a Moonlight OS", 0x0B);
-    print(0, 3, "Desarrollado por Moonlight-Pawling", 0x0C);
+    for (int i = 15; i >= 0; i--) {
+        buffer[2 + (15-i)] = hex_chars[(value >> (i * 4)) & 0xF];
+    }
+    buffer[18] = '\0';
+}
 
-   
-    while(1) {
-        // Mostrar heartbeat animado
-        putchar(79, 24, heartbeat[counter % 4], 0x0E);
-        
-        // Retardo simple
-        for (volatile int i = 0; i < 10000000; i++) { }
-        
-        counter++;
+// Función para convertir número a string decimal
+void uint64_to_dec(uint64_t value, char* buffer) {
+    if (value == 0) {
+        buffer[0] = '0';
+        buffer[1] = '\0';
+        return;
     }
     
+    char temp[32];
+    int i = 0;
+    
+    while (value > 0) {
+        temp[i++] = '0' + (value % 10);
+        value /= 10;
+    }
+    
+    for (int j = 0; j < i; j++) {
+        buffer[j] = temp[i - 1 - j];
+    }
+    buffer[i] = '\0';
+}
 
+// Detectar cantidad de RAM (simulado)
+uint64_t detect_memory() {
+    // En un OS real usarías e820 memory map
+    return 0x40000000ULL; // 1GB por defecto
+}
+
+// Obtener timestamp simple
+uint64_t get_timestamp() {
+    // En un OS real leerías RTC o TSC
+    static uint64_t counter = 0;
+    return ++counter;
+}
+
+// Punto de entrada del kernel 64-bit
+void kernel_main() {
+    // Limpiar la pantalla
+    clear_screen(0x07);
+    
+    // Header principal
+    print(0, 0, "===============================================================================", 0x0F);
+    print(0, 1, "                        MoonlightOS - Modo Largo (64-bit)", 0x0F);
+    print(0, 2, "===============================================================================", 0x0F);
+    
+    // Información del sistema
+    print(0, 4, "Sistema inicializado correctamente", 0x0A);
+    print(0, 5, "Desarrollado por Moonlight-Pawling", 0x0C);
+    
+    // Mostrar información técnica
+    char mem_str[32];
+    uint64_t memory = detect_memory();
+    uint64_to_hex(memory, mem_str);
+    
+    print(0, 7, "Informacion del Sistema:", 0x0B);
+    print(2, 8, "- Arquitectura: x86_64", 0x07);
+    print(2, 9, "- Memoria detectada: ", 0x07);
+    print(22, 9, mem_str, 0x0E);
+    print(2, 10, "- Paginacion: Activada", 0x07);
+    print(2, 11, "- Modo: Long Mode", 0x07);
+    print(2, 12, "- GDT: Configurada", 0x07);
+    
+    // Preparación para sistema de login
+    print(0, 14, "Preparando sistema de usuarios...", 0x0D);
+    print(0, 15, "* IDT: Pendiente", 0x08);
+    print(0, 16, "* Teclado: Pendiente", 0x08);
+    print(0, 17, "* Sistema de Login: Pendiente", 0x08);
+    print(0, 18, "* Shell: Pendiente", 0x08);
+    
+    // Status bar
+    print(0, 20, "Estado: Sistema base funcionando - Listo para expansiones", 0x0A);
+    
+    // Footer con timestamp y heartbeat
+    print(0, 23, "Tiempo de funcionamiento: ", 0x07);
+    
+    // Heartbeat animado con contador
+    uint64_t counter = 0;
+    char heartbeat[] = {'|', '/', '-', '\\'};
+    char counter_str[32];
+    
+    while(1) {
+        // Mostrar heartbeat
+        putchar(79, 24, heartbeat[counter % 4], 0x0E);
+        
+        // Mostrar contador de segundos
+        uint64_to_dec(counter / 10, counter_str);
+        print(26, 23, counter_str, 0x0E);
+        print(26 + 10, 23, "s   ", 0x07); // Limpiar espacios extra
+        
+        // Retardo usando contador de 64 bits
+        for (volatile uint64_t i = 0; i < 50000000ULL; i++) { }
+        
+        counter++;
+        
+        // Cada 50 ciclos, mostrar mensaje de sistema activo
+        if (counter % 50 == 0) {
+            print(0, 21, "Sistema activo y estable", 0x0A);
+        }
+    }
 }
