@@ -81,7 +81,7 @@ qemu*.log
 #    - *.sh~                → backups de tus scripts
 .env
 *.sh~
-*.txt
+#*.txt
 /Backup*/
 # 8) Ignorar archivos de pruebas o demostraciones locales
 #    - tests/coverage/, coverage-reports/ → si usas herramientas de cobertura
