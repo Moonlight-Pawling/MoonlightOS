@@ -76,12 +76,13 @@ temp/
 monitor.log
 qemu*.log
 
-# 7) Ignorar posibles archivos de configuración de shell/scripts
+# 7) Ignorar posibles archivos de configuración de shell/scripts y backups
 #    - .env                 → variables de entorno si las usas
 #    - *.sh~                → backups de tus scripts
 .env
 *.sh~
-
+*.txt
+/backup*/
 # 8) Ignorar archivos de pruebas o demostraciones locales
 #    - tests/coverage/, coverage-reports/ → si usas herramientas de cobertura
 coverage-reports/
