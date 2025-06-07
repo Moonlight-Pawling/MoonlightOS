@@ -82,7 +82,7 @@ qemu*.log
 .env
 *.sh~
 *.txt
-/backup*/
+/Backup*/
 # 8) Ignorar archivos de pruebas o demostraciones locales
 #    - tests/coverage/, coverage-reports/ → si usas herramientas de cobertura
 coverage-reports/
