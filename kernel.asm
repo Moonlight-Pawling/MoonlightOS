@@ -85,11 +85,6 @@ protected_mode:
     mov byte [es:0], 'P'
     mov byte [es:1], 0x0C
 
-    cli
-.hang:
-    hlt
-    jmp .hang
-
     ; Saltar a modo largo: far jump a código 64 bits
     jmp 0x28:long_mode_start
 
