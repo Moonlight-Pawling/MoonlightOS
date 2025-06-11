@@ -3,11 +3,11 @@ section .early16
 
 global start16
 start16:
-    ; Diagnóstico visual inicial
+    ; Diagnóstico visual inicial - FILA 9
     mov ax, 0xB800
     mov es, ax
-    mov byte [es:0], '*'
-    mov byte [es:1], 0x0F
+    mov byte [es:9*160], '*'        ; Fila 9, columna 0
+    mov byte [es:9*160+1], 0x0F
 
     cli
     xor ax, ax
@@ -16,25 +16,24 @@ start16:
     mov ss, ax
     mov sp, 0x7C00
 
-    ; Paso 1 completado
+    ; Paso 1 completado - FILA 10
     mov ax, 0xB800
     mov es, ax
-    mov byte [es:2], '1'
-    mov byte [es:3], 0x0A
+    mov byte [es:10*160], '1'        ; Fila 10, columna 0
+    mov byte [es:10*160+1], 0x0A
 
-    ; Habilitar A20
+    ; Habilitar A20 - FILA 11
     in al, 0x92
     or al, 2
     out 0x92, al
 
-    ; Paso 2 completado
-    mov byte [es:4], '2'
-    mov byte [es:5], 0x0A
+    mov byte [es:11*160], '2'        ; Fila 11, columna 0
+    mov byte [es:11*160+1], 0x0A
 
-    ; Cargar GDT protegida
+    ; Cargar GDT protegida - FILA 12
     lgdt [gdt_descriptor]
-    mov byte [es:6], '3'
-    mov byte [es:7], 0x0A
+    mov byte [es:12*160], '3'        ; Fila 12, columna 0
+    mov byte [es:12*160+1], 0x0A
 
     ; Entrar a modo protegido
     mov eax, cr0
@@ -53,45 +52,105 @@ protected_mode:
     mov gs, ax
     mov esp, 0x90000
 
-    mov dword [0xB8008], 0x0F4D0F33 ; "M3"
-
-    ; ----- Habilitar PAE -----
+    ; "34" - FILA 13
+    mov dword [0xB8000 + 13*160], 0x0F340F33
+    
+    ; "BB" - FILA 14
+    mov eax, 0
+    mov dword [0xB8000 + 14*160], 0x0F420F42
+    
+    ; "CC" - FILA 15 - Leer CR4
     mov eax, cr4
-    or eax, 1 << 5         ; Set PAE
+    mov dword [0xB8000 + 15*160], 0x0F430F43
+    
+    ; Mostrar valor CR4 - FILA 16
+    mov ebx, eax
+    and ebx, 0x0F
+    add ebx, 0x30
+    mov [0xB8000 + 16*160], bl
+    mov byte [0xB8000 + 16*160 + 1], 0x0F
+    
+    ; "DD" - FILA 17
+    mov dword [0xB8000 + 17*160], 0x0F440F44
+    
+    ; "EE" - FILA 18 - Preparar PAE
+    or eax, 1 << 5
+    mov dword [0xB8000 + 18*160], 0x0F450F45
+    
+    ; "FF" - FILA 19 - Habilitar PAE
     mov cr4, eax
+    mov dword [0xB8000 + 19*160], 0x0F460F46
 
-    mov dword [0xB800C], 0x0F505041 ; "PA"
-
-    ; ----- Configurar tablas de paginación simplificadas -----
-    ; PML4, PDPT, PD - identidad primeros 1GB
+    ; "GG" - FILA 20 - Cargar dirección PML4
     lea eax, [pml4]
+    mov dword [0xB8000 + 20*160], 0x0F470F47
+    
+    ; Mostrar dirección PML4 (último dígito hex) - FILA 21
+    mov ebx, eax
+    shr ebx, 12          ; Obtener los bits más significativos
+    and ebx, 0x0F
+    add ebx, 0x30
+    cmp ebx, 0x39
+    jle .ok
+    add ebx, 7           ; Para A-F
+.ok:
+    mov [0xB8000 + 21*160], bl
+    mov byte [0xB8000 + 21*160 + 1], 0x0F
+    call delay_1s
+
+    ; "HH" - FILA 22 - Cargar CR3
     mov cr3, eax
+    mov dword [0xB8000 + 22*160], 0x0F480F48
+    call delay_1s
 
-    ; ----- Habilitar Long Mode (EFER.LME) -----
+    ; "II" - FILA 23 - Preparar EFER
     mov ecx, 0xC0000080
+    mov dword [0xB8000 + 23*160], 0x0F490F49
+    call delay_1s
+
+    ; "JJ" - FILA 24 - Leer EFER
     rdmsr
-    or eax, 1 << 8         ; EFER.LME
-    wrmsr
+    mov dword [0xB8000 + 24*160], 0x0F4A0F4A
+    call delay_1s
 
-    mov dword [0xB8010], 0x0F4C0F4C ; "LL"
+    ; === A PARTIR DE AQUÍ, COLUMNA 10 ===
 
-    ; ----- Habilitar paginación -----
+    ; "KK" - FILA 9, COLUMNA 10 - Modificar EFER
+    or eax, 1 << 8
+    mov dword [0xB8000 + 9*160 + 20], 0x0F4B0F4B   ; +20 = columna 10
+    call delay_1s
+
+    ; "LL" - FILA 10, COLUMNA 10 - Escribir EFER
+    wrmsr  
+    mov dword [0xB8000 + 10*160 + 20], 0x0F4C0F4C  ; +20 = columna 10
+    call delay_1s
+
+    ; "MM" - FILA 11, COLUMNA 10 - Leer CR0
     mov eax, cr0
-    or eax, 0x80000001     ; PG y PE
+    mov dword [0xB8000 + 11*160 + 20], 0x0F4D0F4D  ; +20 = columna 10
+    call delay_1s
+
+    ; "NN" - FILA 12, COLUMNA 10 - Preparar paginación
+    or eax, 0x80000001
+    mov dword [0xB8000 + 12*160 + 20], 0x0F4E0F4E  ; +20 = columna 10
+    call delay_1s
+
+    ; "OO" - FILA 13, COLUMNA 10 - ¡MOMENTO CRÍTICO! Habilitar paginación
     mov cr0, eax
+    mov dword [0xB8000 + 13*160 + 20], 0x0F4F0F4F  ; +20 = columna 10, Si ves esto, ¡paginación OK!
+    call delay_1s
 
-    mov ax, 0xB800
-    mov es, ax
-    mov byte [es:0], 'P'
-    mov byte [es:1], 0x0C
+    ; "PP" - FILA 14, COLUMNA 10 - Paginación exitosa
+    mov dword [0xB8000 + 14*160 + 20], 0x0F500F50  ; +20 = columna 10
+    call delay_1s
 
-    ; Saltar a modo largo: far jump a código 64 bits
-    jmp 0x28:long_mode_start
+    ; Saltar a long mode
+    jmp 0x18:long_mode_start
 
 ; --- LONG MODE (64 bits) ---
 [BITS 64]
 long_mode_start:
-    mov ax, 0x30
+    mov ax, 0x10        ; Usar selector de datos de 32-bit para compatibilidad
     mov ds, ax
     mov es, ax
     mov ss, ax
@@ -99,8 +158,15 @@ long_mode_start:
     mov gs, ax
     mov rsp, 0x90000
 
-    mov dword [0xB8018], 0x0F360F36
-    mov dword [0xB801C], 0x0F360F36
+    ; "QQ" - FILA 15, COLUMNA 10 - Long mode alcanzado
+    mov dword [0xB8000 + 15*160 + 20], 0x0F510F51  ; +20 = columna 10
+
+    ; Mensaje: "Saltando al kernel!" - FILA 16
+    mov rsi, kernel_msg
+    mov rdi, 0xB8000 + 16*160 + 20
+    call print_string_64
+    call delay_1s
+    call delay_1s
 
     extern kernel_main
     call kernel_main
@@ -108,6 +174,26 @@ long_mode_start:
 .hang:
     hlt
     jmp .hang
+
+; === FUNCIÓN PARA IMPRIMIR STRING EN 64-BIT ===
+print_string_64:
+    push rax
+    push rcx
+    
+.loop:
+    lodsb                   ; Cargar byte de [rsi] a al, incrementar rsi
+    test al, al             ; ¿Es null terminator?
+    jz .done
+    
+    mov [rdi], al           ; Escribir carácter
+    mov byte [rdi + 1], 0x0A ; Color verde brillante
+    add rdi, 2              ; Siguiente posición en pantalla
+    jmp .loop
+    
+.done:
+    pop rcx
+    pop rax
+    ret
 
 section .data
 align 8
@@ -123,7 +209,10 @@ gdt_descriptor:
     dw gdt_end - gdt_start - 1
     dq gdt_start
 
-; --- Tablas de paginación mínimas para modo largo (identidad 1GB) ---
+kernel_msg db "Saltando al kernel!", 0
+
+; --- Tablas de paginación con sección dedicada ---
+section .paging
 align 4096
 pml4:
     dq pdpt + 0x03
@@ -136,10 +225,20 @@ pdpt:
 
 align 4096
 pd:
-    %assign i 0
-    %rep 512
-        dq (i << 21) + 0x83
-        %assign i i+1
-    %endrep
+    dq 0x00000000 + 0x83
+    times 511 dq 0
+
+section .text
+; ===== FUNCIÓN DE DELAY =====
+delay_1s:
+    mov edi, 100000000
+.loop:
+    nop
+    nop
+    nop
+    nop
+    dec edi
+    jnz .loop
+    ret
 
 section .bss
