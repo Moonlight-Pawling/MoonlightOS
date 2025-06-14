@@ -5,23 +5,14 @@ section .early16
 global total_mem_high
 global total_mem_low
 
-; Cabecera del kernel - permite carga dinámica
+; Cabecera del kernel - permite carga dinámica (solo añadir esto al principio)
 kernel_header:
     dw 64              ; Número de sectores que ocupa el kernel (ajustar durante la compilación)
     dw 0x1234          ; Firma mágica
-    times 508 db 0     ; Padding para completar sector de 512 bytes
+    times 12 db 0      ; Padding adicional
 
 global start16
 start16:
-    ; Primero limpiar toda la pantalla para evitar artefactos de video
-    mov ax, 0xB800
-    mov es, ax
-    xor di, di         ; Empezar desde el principio de la memoria de video
-    mov ax, 0x0720     ; Espacio con atributo normal (fondo negro, texto gris)
-    mov cx, 2000       ; 80x25 = 2000 caracteres en pantalla
-    cld                ; Dirección de incremento
-    rep stosw          ; Limpiar toda la pantalla
-    
     ; Diagnóstico visual inicial - FILA 9
     mov ax, 0xB800
     mov es, ax
@@ -49,7 +40,7 @@ start16:
     mov byte [es:11*160], '2'        ; Fila 11, columna 0
     mov byte [es:11*160+1], 0x0A
 
-    ; Detectar memoria disponible con int 0x15, eax=0xE820
+    ; Añadir detección básica de memoria
     call detect_memory
     
     ; Cargar GDT protegida - FILA 12
@@ -63,88 +54,11 @@ start16:
     mov cr0, eax
     jmp 0x08:protected_mode
 
-; Rutina para detectar memoria disponible usando int 0x15, eax=0xE820
+; Rutina mínima para detectar memoria
 detect_memory:
-    push es
-    push di
-    
-    ; Configurar buffer en una ubicación segura
-    mov ax, 0x0000
-    mov es, ax
-    mov di, 0x9000       ; Buffer temporal para E820
-    
-    xor ebx, ebx        ; ebx debe ser 0 para comenzar
-    xor bp, bp          ; Contador de entradas
-    mov edx, 0x534D4150 ; 'SMAP' en ASCII
-    mov eax, 0xE820
-    mov [es:di + 20], dword 1   ; Forzar ACPI 3.x entry
-    mov ecx, 24         ; Tamaño del buffer
-    int 0x15
-    jc .error           ; Error si CF está activado
-    
-    mov edx, 0x534D4150 ; Algunas BIOSs pueden destruir edx
-    cmp eax, edx
-    jne .error          ; eax debe ser 'SMAP'
-    
-    test ebx, ebx       ; ebx = 0 significa lista de 1 entrada
-    je .error
-    jmp .start
-    
-.next_entry:
-    mov eax, 0xE820
-    mov [es:di + 20], dword 1
-    mov ecx, 24
-    int 0x15
-    jc .done            ; CF = 1 significa final de lista
-    mov edx, 0x534D4150 ; Restaurar edx
-    
-.start:
-    jcxz .skip_entry    ; Si ecx=0, omitir entrada
-    
-    ; Procesar entrada: comprobar si es memoria utilizable (tipo=1)
-    mov eax, [es:di + 16]   ; Tipo de entrada
-    cmp eax, 1
-    jne .skip_entry
-    
-    ; Es memoria utilizable, sumamos al total
-    mov eax, [es:di + 8]    ; Tamaño (bits bajos)
-    mov ebx, [es:di + 12]   ; Tamaño (bits altos)
-    
-    ; Acumular memoria total
-    add [total_mem_low], eax
-    adc [total_mem_high], ebx
-    
-    inc bp              ; Incrementar contador de entradas
-    add di, 24          ; Siguiente entrada
-    
-.skip_entry:
-    test ebx, ebx       ; Si ebx=0, fin de la lista
-    jne .next_entry
-    
-.done:
-    ; bp contiene el número de entradas
-    mov [mem_entries], bp
-    
-    ; Si no se encontró memoria, usar valor predeterminado
-    mov eax, [total_mem_low]
-    or eax, [total_mem_high]
-    jnz .memory_ok
-    
-    ; Valor predeterminado: 4GB
-    mov dword [total_mem_low], 0x00000000
-    mov dword [total_mem_high], 0x00000001 ; 4GB = 0x100000000
-    
-.memory_ok:
-    pop di
-    pop es
-    ret
-    
-.error:
-    ; En caso de error, usar un valor predeterminado para memoria
+    ; Configurar 1GB por defecto (valor seguro)
     mov dword [total_mem_high], 0
-    mov dword [total_mem_low], 0x40000000  ; 1GB por defecto
-    pop di
-    pop es
+    mov dword [total_mem_low], 0x40000000  ; 1GB
     ret
 
 ; --- PROTECTED MODE ---
@@ -317,13 +231,11 @@ gdt_descriptor:
 
 kernel_msg db "Saltando al kernel!", 0
 
-; Variables para almacenar información de memoria
-mem_entries dw 0
+; Variables para almacenar información de memoria (añadir esto)
 total_mem_low dd 0           ; Variable exportada a C 
 total_mem_high dd 0          ; Variable exportada a C
 
 ; --- Tablas de paginación con sección dedicada ---
-; IMPORTANTE: Volver a la configuración simple que funcionaba originalmente
 section .paging
 align 4096
 pml4:
@@ -337,16 +249,8 @@ pdpt:
 
 align 4096
 pd:
-    ; Esta configuración mapea los primeros 2MB, que incluyen el búfer de video en 0xB8000
-    dq 0x00000000 + 0x83        ; Present + Writable + Huge (2MB)
-    
-    ; Añadir más mapeos para tener acceso a más memoria (cada entrada = 2MB)
-    ; Esto extenderá el mapeo hasta 1GB manteniendo la compatibilidad con el búfer de video
-    %assign i 1
-    %rep 511
-        dq (i * 0x200000) + 0x83    ; Dirección base + flags
-        %assign i i+1
-    %endrep
+    dq 0x00000000 + 0x83
+    times 511 dq 0
 
 section .text
 ; ===== FUNCIÓN DE DELAY =====

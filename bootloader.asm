@@ -20,7 +20,7 @@ start:
     mov si, msg_loading
     call print_string
     
-    ; --- PASO 1: CARGAR LA CABECERA DEL KERNEL ---
+    ; --- CARGAR LA CABECERA DEL KERNEL ---
     mov ax, KERNEL_SEGMENT
     mov es, ax
     mov bx, KERNEL_OFFSET
@@ -36,21 +36,14 @@ start:
     int 0x13                ; Leer sector de cabecera
     jc disk_error
     
-    ; --- PASO 2: LEER TAMAÑO DEL KERNEL DE LA CABECERA ---
-    mov cx, [KERNEL_OFFSET]      ; Obtener tamaño del kernel en sectores
-    cmp cx, 0                    ; Si es 0, usar valor predeterminado
+    ; --- OBTENER TAMAÑO DEL KERNEL ---
+    mov cx, [KERNEL_OFFSET]   ; Obtener tamaño del kernel en sectores
+    cmp cx, 0                 ; Si es 0, usar valor predeterminado
     jne .size_ok
-    mov cx, 32                   ; Valor predeterminado: 32 sectores
+    mov cx, 32                ; Valor predeterminado: 32 sectores
 .size_ok:
-    mov [kernel_sectors], cx
     
-    ; Mostrar sectores a cargar
-    mov si, msg_sectors
-    call print_string
-    mov al, cl
-    call print_hex_byte
-    
-    ; --- PASO 3: CARGAR EL KERNEL COMPLETO ---
+    ; --- CARGAR EL KERNEL COMPLETO ---
     mov ax, KERNEL_SEGMENT
     mov es, ax
     mov bx, KERNEL_OFFSET
@@ -68,20 +61,6 @@ start:
     ; --- DIAGNÓSTICO PRE-SALTO ---
     mov si, msg_loaded
     call print_string
-    
-    ; Verificar bytes en 0000:8000
-    xor ax, ax
-    mov es, ax
-    mov al, [es:0x8000]     ; Primer byte
-    call print_hex_byte
-    mov al, [es:0x8001]     ; Segundo byte
-    call print_hex_byte
-    
-    ; Pausa para diagnóstico
-    mov si, msg_press
-    call print_string
-    xor ah, ah
-    int 0x16
     
     ; --- PREPARAR PARA SALTO ---
     cli                     ; Deshabilitar interrupciones
@@ -115,38 +94,10 @@ print_string:
 .done:
     ret
 
-print_hex_byte:
-    push ax
-    push cx
-    
-    mov cx, 2
-.loop:
-    rol al, 4
-    mov ah, al
-    and ah, 0x0F
-    add ah, '0'
-    cmp ah, '9'
-    jle .print
-    add ah, 7          ; 'A'-'9'-1
-.print:
-    push ax
-    mov al, ah
-    mov ah, 0x0E
-    int 0x10
-    pop ax
-    loop .loop
-    
-    pop cx
-    pop ax
-    ret
-
 ; --- DATA ---
 boot_drive db 0
-kernel_sectors dw 0
 msg_loading db "Cargando kernel...", 0
-msg_sectors db " Sectores: ", 0
-msg_loaded db " Bytes: ", 0
-msg_press db " Presiona tecla", 0
+msg_loaded db " OK!", 0
 msg_error db " Error!", 0
 
 ; --- PADDING AND SIGNATURE ---

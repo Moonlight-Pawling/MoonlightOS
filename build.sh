@@ -36,7 +36,7 @@ kernel_sectors=$(( (kernel_size + 511) / 512 ))
 echo "Tamaño del kernel: $kernel_size bytes ($kernel_sectors sectores)"
 
 # Actualizar los primeros 2 bytes de kernel.bin con el número de sectores
-printf "\x$(printf %x $kernel_sectors)\x00" | dd of=kernel.bin bs=1 count=2 conv=notrunc
+printf "\\$(printf %03o $kernel_sectors)\\0" | dd of=kernel.bin bs=1 count=2 conv=notrunc
 
 echo "Primeros bytes del kernel 64-bit (incluyendo tamaño actualizado):"
 hexdump -C -n 32 kernel.bin
@@ -48,4 +48,4 @@ dd if=kernel.bin of=hdd.img bs=512 seek=2 conv=notrunc
 
 echo "Iniciando QEMU con soporte 64-bit..."
 qemu-system-x86_64 -drive file=hdd.img,format=raw,index=0,media=disk \
-                   -boot c -cpu qemu64 -m 4G -d int,cpu_reset -D qemu_log.txt
+                   -boot c -cpu qemu64 -m 1G

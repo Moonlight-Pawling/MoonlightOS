@@ -1,18 +1,16 @@
 // Kernel en modo largo (64 bits) - MoonlightOS
 #include <stdint.h>
 
-// Definir un puntero a la memoria de video con mapeo adecuado para 64 bits
-volatile uint16_t* const video = (volatile uint16_t*)0xB8000;
+// Define un puntero a la memoria de video
+volatile uint16_t* video = (volatile uint16_t*)0xB8000;
 
-// Variables externas desde kernel.asm para información de memoria
+// Variables externas desde kernel.asm 
 extern uint32_t total_mem_low;
 extern uint32_t total_mem_high;
 
-// Limpia la pantalla completa de forma segura
+// Limpia la pantalla completa
 void clear_screen(uint8_t color_attr) {
-    uint16_t blank = ((uint16_t)color_attr << 8) | 0x20; // Espacio con color
-    
-    // Usar el enfoque original que sabemos que funciona
+    uint16_t blank = ((uint16_t)color_attr << 8) | 0x20;
     for (int i = 0; i < 2000; i++) {
         video[i] = blank;
     }
@@ -65,16 +63,10 @@ void uint64_to_dec(uint64_t value, char* buffer) {
     buffer[i] = '\0';
 }
 
-// Detectar cantidad de RAM desde variables externas
+// Detectar cantidad de RAM
 uint64_t detect_memory() {
-    // Combinar total_mem_high y total_mem_low en un valor de 64 bits
-    uint64_t memory_size = ((uint64_t)total_mem_high << 32) | (uint64_t)total_mem_low;
-    
-    // Si no se detectó, usar al menos 1GB
-    if (memory_size == 0) {
-        memory_size = 0x40000000ULL; // 1GB por defecto
-    }
-    
+    // Combinar las variables externas
+    uint64_t memory_size = ((uint64_t)total_mem_high << 32) | total_mem_low;
     return memory_size;
 }
 
@@ -97,20 +89,12 @@ void kernel_main() {
     uint64_t memory = detect_memory();
     uint64_to_hex(memory, mem_str);
     
-    // Mostrar tamaño en GB
-    char mem_gb_str[32];
-    uint64_t memory_gb = memory / (1024*1024*1024);
-    uint64_to_dec(memory_gb, mem_gb_str);
-    
     print(0, 7, "Informacion del Sistema:", 0x0B);
     print(2, 8, "- Arquitectura: x86_64", 0x07);
     print(2, 9, "- Memoria detectada: ", 0x07);
     print(22, 9, mem_str, 0x0E);
-    print(41, 9, "(", 0x07);
-    print(42, 9, mem_gb_str, 0x0E);
-    print(42 + 5, 9, " GB)", 0x07);
-    print(2, 10, "- Paginacion: Activada (Acceso completo a RAM)", 0x07);
-    print(2, 11, "- Modo: Long Mode 64-bit", 0x07);
+    print(2, 10, "- Paginacion: Activada", 0x07);
+    print(2, 11, "- Modo: Long Mode", 0x07);
     print(2, 12, "- GDT: Configurada", 0x07);
     print(2, 13, "- Carga de kernel: Dinamica", 0x0A);
     
