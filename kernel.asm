@@ -4,12 +4,14 @@ section .early16
 ; Exportar variables para que sean accesibles desde C
 global total_mem_high
 global total_mem_low
+global mapped_memory_mb  ; Nueva variable para memoria mapeada
 
 ; Cabecera del kernel - permite carga dinámica (solo añadir esto al principio)
 kernel_header:
     dw 64              ; Número de sectores que ocupa el kernel (ajustar durante la compilación)
     dw 0x1234          ; Firma mágica
-    times 12 db 0      ; Padding adicional
+    dd 0x00000000      ; Reservado para futura expansión
+    dq 0x0000000000000000  ; Reservado para direcciones de memoria extendida
 
 global start16
 start16:
@@ -231,9 +233,10 @@ gdt_descriptor:
 
 kernel_msg db "Saltando al kernel!", 0
 
-; Variables para almacenar información de memoria (añadir esto)
-total_mem_low dd 0           ; Variable exportada a C 
+; Variables para almacenar información de memoria (consolidadas aquí)
+total_mem_low dd 0           ; Variable exportada a C
 total_mem_high dd 0          ; Variable exportada a C
+mapped_memory_mb dd 128      ; Nueva variable: memoria mapeada en MB (62 páginas * 2MB)
 
 ; --- Tablas de paginación con sección dedicada ---
 section .paging
@@ -249,8 +252,13 @@ pdpt:
 
 align 4096
 pd:
-    dq 0x00000000 + 0x83
-    times 511 dq 0
+    ; Mapear 128 MB (62 entradas de 2 MB cada una)
+    %assign i 0
+    %rep 64
+        dq (i * 0x200000) + 0x83    ; Cada entrada mapea 2MB, con flags 0x83 (presente, escritura, tamaño grande)
+        %assign i i+1
+    %endrep
+    times (512-64) dq 0             ; Rellenar el resto de la tabla
 
 section .text
 ; ===== FUNCIÓN DE DELAY =====

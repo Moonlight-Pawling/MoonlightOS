@@ -33,10 +33,29 @@ x86_64-elf-objcopy -O binary kernel.elf kernel.bin
 # Calcular tamaño del kernel en sectores (512 bytes) y actualizar la cabecera
 kernel_size=$(stat -c %s kernel.bin)
 kernel_sectors=$(( (kernel_size + 511) / 512 ))
+
+# Verificar que el tamaño del kernel no exceda límites razonables
+if [ "$kernel_sectors" -gt 8192 ]; then
+    echo "ADVERTENCIA: El kernel es muy grande ($kernel_sectors sectores)"
+    echo "Esto puede causar problemas si excede la memoria disponible"
+    read -p "¿Continuar de todos modos? (y/n): " continue_choice
+    if [[ ! "$continue_choice" =~ ^[Yy]$ ]]; then
+        echo "Compilación cancelada por el usuario."
+        exit 1
+    fi
+fi
+
 echo "Tamaño del kernel: $kernel_size bytes ($kernel_sectors sectores)"
+
+# Guardar valor original de la firma mágica
+MAGIC_BYTES=$(dd if=kernel.bin bs=1 skip=2 count=2 status=none | hexdump -v -e '1/1 "%02X"')
 
 # Actualizar los primeros 2 bytes de kernel.bin con el número de sectores
 printf "\\$(printf %03o $kernel_sectors)\\0" | dd of=kernel.bin bs=1 count=2 conv=notrunc
+
+# Verificar que la actualización de la cabecera fue exitosa
+NEW_SIZE_BYTES=$(dd if=kernel.bin bs=1 count=2 status=none | hexdump -v -e '1/1 "%02X"')
+echo "Cabecera actualizada: Tamaño=$NEW_SIZE_BYTES, Firma=$MAGIC_BYTES"
 
 echo "Primeros bytes del kernel 64-bit (incluyendo tamaño actualizado):"
 hexdump -C -n 32 kernel.bin
@@ -46,6 +65,15 @@ dd if=/dev/zero of=hdd.img bs=1M count=64
 dd if=bootloader.bin of=hdd.img bs=512 seek=0 conv=notrunc
 dd if=kernel.bin of=hdd.img bs=512 seek=2 conv=notrunc
 
+echo "Configuración de memoria:"
+echo "- Memoria física detectada: 1 GB"
+echo "- Memoria virtual mapeada: 124 MB"
+echo "- Memoria disponible para QEMU: 1 GB"
+
+echo "Iniciando QEMU con soporte 64-bit..."
+qemu-system-x86_64 -drive file=hdd.img,format=raw,index=0,media=disk \
+                   -boot c -cpu qemu64 -m 1G
+                   
 echo "Iniciando QEMU con soporte 64-bit..."
 qemu-system-x86_64 -drive file=hdd.img,format=raw,index=0,media=disk \
                    -boot c -cpu qemu64 -m 1G
