@@ -29,72 +29,55 @@ start:
     ; Leer el primer sector del kernel (cabecera)
     mov ah, 0x02            ; INT 13h: Read sectors
     mov al, 1               ; Leer 1 sector (cabecera)
-    mov ch, 0               ; Cilindro 0
-    mov cl, 3               ; Sector 3 (= LBA 2)
-    mov dh, 0               ; Cabeza 0
-    mov dl, [boot_drive]    ; Unidad
-
-    int 0x13                ; Leer sector de cabecera
+    mov ch, 0
+    mov cl, 3
+    mov dh, 0
+    mov dl, [boot_drive]
+    int 0x13
     jc disk_error
 
-    ; --- OBTENER TAMAÑO DEL KERNEL ---
-    mov cx, [KERNEL_OFFSET]   ; Obtener tamaño del kernel en sectores
-    cmp cx, 0                 ; Si es 0, usar valor predeterminado
+    ; --- OBTENER TAMAÑO DEL KERNEL (ahora 4 bytes) ---
+    mov si, KERNEL_OFFSET
+    mov eax, [ds:si]        ; Lee 4 bytes del tamaño
+    cmp eax, 0
     jne .size_ok
-    mov cx, 32                ; Valor predeterminado: 32 sectores
+    mov eax, 32
 .size_ok:
-    mov [kernel_sectors], cx  ; Guardar para uso posterior
+    mov [kernel_sectors], eax
 
     ; --- VERIFICAR FIRMA MÁGICA ---
-    cmp word [KERNEL_OFFSET+2], 0x1234  ; Verificar firma mágica
+    mov cx, [KERNEL_OFFSET+4]
+    cmp cx, 0x1234
     jne .invalid_kernel
 
     ; --- CARGAR EL KERNEL POR BLOQUES ---
-    ; Ahora cargaremos en bloques de hasta 127 sectores (límite de BIOS)
     mov ax, KERNEL_SEGMENT
     mov es, ax
     mov bx, KERNEL_OFFSET
-
-    ; Sector inicial
-    mov word [current_sector], 3  ; Sector 3 (= LBA 2)
+    mov dword [current_sector], 3
 
 .load_next_block:
-    ; Sectores pendientes
-    mov cx, [kernel_sectors]
-    cmp cx, 0
+    mov eax, [kernel_sectors]
+    cmp eax, 0
     je .loading_complete
 
-    ; Determinar cuántos sectores cargar en esta operación
-    cmp cx, MAX_SECTORS
+    mov ecx, eax
+    cmp ecx, 127
     jbe .load_remaining
-    mov cx, MAX_SECTORS        ; Cargar máximo por operación
+    mov ecx, 127
 .load_remaining:
+    sub dword [kernel_sectors], ecx
 
-    ; Actualizar contador de sectores pendientes
-    sub [kernel_sectors], cx
-
-    ; Cargar este bloque
-    mov ah, 0x02               ; INT 13h: Read sectors
-    mov al, cl                 ; Sectores a leer
-    mov ch, 0                  ; Cilindro 0
-    mov cl, byte [current_sector] ; Sector inicial
-    mov dh, 0                  ; Cabeza 0
-    mov dl, [boot_drive]       ; Unidad
-
-    int 0x13                   ; Leer sectores
+    mov ah, 0x02
+    mov al, cl
+    mov ch, 0
+    mov cl, byte [current_sector]
+    mov dh, 0
+    mov dl, [boot_drive]
+    int 0x13
     jc disk_error
 
-    ; Actualizar posición y dirección
-    movzx ax, byte [current_sector]
-    add ax, MAX_SECTORS
-    mov [current_sector], ax
-
-    ; Ajustar buffer de memoria para el siguiente bloque
-    mov ax, es
-    add ax, MAX_SECTORS * 512 / 16  ; 512 bytes por sector, dividido por 16 para segmentos
-    mov es, ax
-
-    ; Cargar siguiente bloque
+    add dword [current_sector], ecx
     jmp .load_next_block
 
 .loading_complete:
@@ -140,8 +123,8 @@ print_string:
 
 ; --- DATA ---
 boot_drive db 0
-kernel_sectors dw 0
-current_sector dw 0
+kernel_sectors dd 0      ; <--- Cambiado a dword
+current_sector dd 0      ; <--- Cambiado a dword
 msg_loading db "Cargando kernel...", 0
 msg_loaded db " OK!", 0
 msg_error db " Error de disco!", 0

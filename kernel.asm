@@ -8,10 +8,10 @@ global mapped_memory_mb  ; Nueva variable para memoria mapeada
 
 ; Cabecera del kernel - permite carga dinámica (solo añadir esto al principio)
 kernel_header:
-    dw 64              ; Número de sectores que ocupa el kernel (ajustar durante la compilación)
-    dw 0x1234          ; Firma mágica
-    dd 0x00000000      ; Reservado para futura expansión
-    dq 0x0000000000000000  ; Reservado para direcciones de memoria extendida
+    dd 64              ; Número de sectores (ahora 4 bytes, no 2)
+    dw 0x1234          ; Firma mágica (offset +4)
+    dd 0x00000000      ; Reservado
+    dq 0x0000000000000000
 
 global start16
 start16:
