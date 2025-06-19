@@ -31,7 +31,7 @@ start16:
     ; Paso 1 completado - FILA 10
     mov ax, 0xB800
     mov es, ax
-    mov byte [es:10*160], '1'        ; Fila 10, columna 0
+    mov byte [es:10*160], 'I'        ; Fila 10, columna 0 - Inicio
     mov byte [es:10*160+1], 0x0A
 
     ; Habilitar A20 - FILA 11
@@ -39,7 +39,7 @@ start16:
     or al, 2
     out 0x92, al
 
-    mov byte [es:11*160], '2'        ; Fila 11, columna 0
+    mov byte [es:11*160], 'A'        ; Fila 11, columna 0 - A20 activada
     mov byte [es:11*160+1], 0x0A
 
     ; Añadir detección básica de memoria
@@ -47,7 +47,7 @@ start16:
     
     ; Cargar GDT protegida - FILA 12
     lgdt [gdt_descriptor]
-    mov byte [es:12*160], '3'        ; Fila 12, columna 0
+    mov byte [es:12*160], 'G'        ; Fila 12, columna 0 - GDT cargada
     mov byte [es:12*160+1], 0x0A
 
     ; Entrar a modo protegido
@@ -74,17 +74,17 @@ protected_mode:
     mov gs, ax
     mov esp, 0x90000
 
-    ; "34" - FILA 13
-    mov dword [0xB8000 + 13*160], 0x0F340F33
-    
-    ; "BB" - FILA 14
+    ; Indicador de modo protegido - FILA 13
+    mov dword [0xB8000 + 13*160], 0x0F500F33  ; "P3" - Modo Protegido 32-bits
+
+    ; Inicialización de segmentos - FILA 14
     mov eax, 0
-    mov dword [0xB8000 + 14*160], 0x0F420F42
-    
-    ; "CC" - FILA 15 - Leer CR4
+    mov dword [0xB8000 + 14*160], 0x0F530F49  ; "IS" - Inicialización de Segmentos
+
+    ; Preparación para PAE - FILA 15
     mov eax, cr4
-    mov dword [0xB8000 + 15*160], 0x0F430F43
-    
+    mov dword [0xB8000 + 15*160], 0x0F450F50  ; "PE" - Preparando PAE Extension
+
     ; Mostrar valor CR4 - FILA 16
     mov ebx, eax
     and ebx, 0x0F
@@ -95,18 +95,21 @@ protected_mode:
     ; "DD" - FILA 17
     mov dword [0xB8000 + 17*160], 0x0F440F44
     
-    ; "EE" - FILA 18 - Preparar PAE
-    or eax, 1 << 5
-    mov dword [0xB8000 + 18*160], 0x0F450F45
-    
-    ; "FF" - FILA 19 - Habilitar PAE
-    mov cr4, eax
-    mov dword [0xB8000 + 19*160], 0x0F460F46
+    ; Activar PAE - FILA 17
+    mov dword [0xB8000 + 17*160], 0x0F410F50  ; "PA" - PAE Activación
 
-    ; "GG" - FILA 20 - Cargar dirección PML4
+    ; Habilitar bandera PAE en CR4 - FILA 18
+    or eax, 1 << 5
+    mov dword [0xB8000 + 18*160], 0x0F430F50  ; "PC" - PAE en CR4
+
+    ; PAE habilitada - FILA 19
+    mov cr4, eax
+    mov dword [0xB8000 + 19*160], 0x0F480F50  ; "PH" - PAE Habilitada
+
+    ; Cargar estructura de paginación - FILA 20
     lea eax, [pml4]
-    mov dword [0xB8000 + 20*160], 0x0F470F47
-    
+    mov dword [0xB8000 + 20*160], 0x0F430F54  ; "TC" - Tablas Cargadas
+
     ; Mostrar dirección PML4 (último dígito hex) - FILA 21
     mov ebx, eax
     shr ebx, 12          ; Obtener los bits más significativos
@@ -120,50 +123,50 @@ protected_mode:
     mov byte [0xB8000 + 21*160 + 1], 0x0F
     call delay_1s
 
-    ; "HH" - FILA 22 - Cargar CR3
+    ; Cargar CR3 con dirección PML4 - FILA 22
     mov cr3, eax
-    mov dword [0xB8000 + 22*160], 0x0F480F48
+    mov dword [0xB8000 + 22*160], 0x0F330F43  ; "C3" - CR3 cargado con PML4
     call delay_1s
 
-    ; "II" - FILA 23 - Preparar EFER
+    ; Preparar registro MSR EFER - FILA 23
     mov ecx, 0xC0000080
-    mov dword [0xB8000 + 23*160], 0x0F490F49
+    mov dword [0xB8000 + 23*160], 0x0F450F45  ; "EE" - EFER (MSR) preparado
     call delay_1s
 
-    ; "JJ" - FILA 24 - Leer EFER
+    ; Leer EFER - FILA 24
     rdmsr
-    mov dword [0xB8000 + 24*160], 0x0F4A0F4A
+    mov dword [0xB8000 + 24*160], 0x0F4C0F45  ; "EL" - EFER Leído
     call delay_1s
 
-    ; === A PARTIR DE AQUÍ, COLUMNA 10 ===
+    ; === A PARTIR DE AQUÍ, COLUMNA 25 ===
 
-    ; "KK" - FILA 9, COLUMNA 10 - Modificar EFER
+    ; Activar LME en EFER - FILA 10, COLUMNA 25
     or eax, 1 << 8
-    mov dword [0xB8000 + 9*160 + 20], 0x0F4B0F4B   ; +20 = columna 10
+    mov dword [0xB8000 + 10*160 + 50], 0x0F200F4C  ; "L " - Activando Long Mode
     call delay_1s
 
-    ; "LL" - FILA 10, COLUMNA 10 - Escribir EFER
-    wrmsr  
-    mov dword [0xB8000 + 10*160 + 20], 0x0F4C0F4C  ; +20 = columna 10
+    ; Escribir EFER modificado - FILA 11, COLUMNA 25
+    wrmsr
+    mov dword [0xB8000 + 11*160 + 50], 0x0F200F4D  ; "M " - Modo Largo habilitado
     call delay_1s
 
-    ; "MM" - FILA 11, COLUMNA 10 - Leer CR0
+    ; Leer CR0 para paginación - FILA 12, COLUMNA 25
     mov eax, cr0
-    mov dword [0xB8000 + 11*160 + 20], 0x0F4D0F4D  ; +20 = columna 10
+    mov dword [0xB8000 + 12*160 + 50], 0x0F310F50  ; "P1" - Preparando CR0
     call delay_1s
 
-    ; "NN" - FILA 12, COLUMNA 10 - Preparar paginación
+    ; Preparar paginación - FILA 13, COLUMNA 25
     or eax, 0x80000001
-    mov dword [0xB8000 + 12*160 + 20], 0x0F4E0F4E  ; +20 = columna 10
+    mov dword [0xB8000 + 13*160 + 50], 0x0F320F50  ; "P2" - Preparando Paginación
     call delay_1s
 
-    ; "OO" - FILA 13, COLUMNA 10 - ¡MOMENTO CRÍTICO! Habilitar paginación
+    ; ¡MOMENTO CRÍTICO! Habilitar paginación - FILA 14, COLUMNA 25
     mov cr0, eax
-    mov dword [0xB8000 + 13*160 + 20], 0x0F4F0F4F  ; +20 = columna 10, Si ves esto, ¡paginación OK!
+    mov dword [0xB8000 + 14*160 + 50], 0x0F330F50  ; "P3" - Paginación Activada!
     call delay_1s
 
-    ; "PP" - FILA 14, COLUMNA 10 - Paginación exitosa
-    mov dword [0xB8000 + 14*160 + 20], 0x0F500F50  ; +20 = columna 10
+    ; Paginación exitosa - FILA 15, COLUMNA 25
+    mov dword [0xB8000 + 15*160 + 50], 0x0F4B0F4F  ; "OK" - Paginación Correcta
     call delay_1s
 
     ; Saltar a long mode
@@ -180,12 +183,13 @@ long_mode_start:
     mov gs, ax
     mov rsp, 0x90000
 
-    ; "QQ" - FILA 15, COLUMNA 10 - Long mode alcanzado
-    mov dword [0xB8000 + 15*160 + 20], 0x0F510F51  ; +20 = columna 10
+    ; Modo Largo alcanzado - FILA 16, COLUMNA 10 (desplazado una fila más abajo)
+    mov dword [0xB8000 + 16*160 + 20], 0x0F340F36  ; "64" - Modo 64-bits
+    call delay_1s
 
-    ; Mensaje: "Saltando al kernel!" - FILA 16
+    ; Mensaje: "Saltando al kernel!" - FILA 17 (ajustado una fila más abajo)
     mov rsi, kernel_msg
-    mov rdi, 0xB8000 + 16*160 + 20
+    mov rdi, 0xB8000 + 17*160 + 20
     call print_string_64
     call delay_1s
     call delay_1s
@@ -231,7 +235,7 @@ gdt_descriptor:
     dw gdt_end - gdt_start - 1
     dq gdt_start
 
-kernel_msg db "Saltando al kernel!", 0
+kernel_msg db "Modo Largo 64-bit activo! Saltando al kernel C...", 0
 
 ; Variables para almacenar información de memoria (consolidadas aquí)
 total_mem_low dd 0           ; Variable exportada a C
