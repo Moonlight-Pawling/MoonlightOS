@@ -125,8 +125,8 @@ print_string:
 boot_drive db 0
 kernel_sectors dd 0      ; <--- Cambiado a dword
 current_sector dd 0      ; <--- Cambiado a dword
-msg_loading db "MoonlightOS: Iniciando carga del Portal (64-bit)...", 0
-msg_loaded db " Portal cargado correctamente en memoria!", 0
+msg_loading db "MoonlightOS: Iniciando carga del kernel (64-bit)...", 0
+msg_loaded db " Kernel cargado correctamente en memoria!", 0
 msg_error db " Error: Fallo al leer sectores del disco", 0
 msg_invalid db " Error: El Portal no es valido o esta corrupto (firma incorrecta)", 0
 

@@ -14,12 +14,45 @@ volatile uint16_t* video = (volatile uint16_t*)0xB8000;
 #define CONSOLE_FOOTER_LINE 24          // Línea de pie de página con heartbeat
 #define CONSOLE_START_X 0
 #define CONSOLE_START_Y 12              // Iniciamos la consola más arriba para evitar solapamiento
-#define CONSOLE_END_Y 20                // Última línea de la consola (reducida para dejar espacio de seguridad)
+#define CONSOLE_END_Y 20                // Última l��nea de la consola (reducida para dejar espacio de seguridad)
 #define CONSOLE_PROMPT_COLOR 0x0B
 #define CONSOLE_TEXT_COLOR 0x07
 #define MAX_COMMAND_LENGTH 78           // Dejamos espacio para el prompt "> "
 #define BACKSPACE 0x0E
 #define ENTER 0x1C
+
+// Constantes para Portal Shell
+#define PORTAL_VERSION "1.0"
+#define PORTAL_PROMPT "> "
+#define MAX_ARGS 8      // Máximo número de argumentos para comandos
+#define PORTAL_MAX_ARGS MAX_ARGS  // Alias para consistencia
+
+// Constantes para los comandos
+#define CMD_UNKNOWN 0
+#define CMD_PROCESS 1
+#define CMD_HELP 2
+#define CMD_CLEAR 3
+#define CMD_EXIT 4
+
+// Estructura para comandos de Portal
+typedef struct {
+    char command[MAX_COMMAND_LENGTH + 1];
+    char args[MAX_ARGS][MAX_COMMAND_LENGTH + 1];
+    int argc;
+} PortalCommand;
+
+// Variables globales para Portal
+volatile int portal_command_ready = 0;
+char portal_command_buffer[MAX_COMMAND_LENGTH + 1];
+char command_buffer[MAX_COMMAND_LENGTH + 1];
+
+// Declaraciones anticipadas de las funciones del Portal Shell
+void portal_init(void);
+void portal_display_welcome(void);
+void portal_print_prompt(void);
+void portal_parse_command(char* input, PortalCommand* cmd);
+int portal_execute_command(PortalCommand* cmd);
+void send_to_portal(char* command);
 
 // Constantes para el PIT (Programmable Interval Timer)
 #define PIT_FREQUENCY 1193182        // Frecuencia base del PIT en Hz
@@ -72,6 +105,7 @@ extern uint32_t mapped_memory_mb;  // Nueva variable importada de kernel.asm
 void update_timestamp(void);
 void process_key(uint8_t scancode);
 uint8_t create_process(char* name, void (*function)(uint64_t));
+void kill_process(uint8_t pid);
 void run_processes(void);
 int strcmp(const char* s1, const char* s2);
 
@@ -245,6 +279,11 @@ void init_console() {
 
 // Convertir scancode a ASCII considerando el teclado en español/latino
 char scancode_to_ascii(uint8_t scancode) {
+    // Ignorar release codes (bit 7 activado)
+    if (scancode & 0x80) {
+        return 0;
+    }
+
     // Mapeo correcto para teclas principales
     if (scancode == 0x02) return '1';
     if (scancode == 0x03) return '2';
@@ -308,34 +347,6 @@ char scancode_to_ascii(uint8_t scancode) {
     return 0;
 }
 
-// Definiciones para Portal Shell
-#define PORTAL_VERSION "1.0"
-#define PORTAL_MAX_ARGS 16
-#define PORTAL_PROMPT "> "
-
-// Estructura para almacenar un comando procesado
-typedef struct {
-    char command[MAX_COMMAND_LENGTH + 1];
-    char *args[PORTAL_MAX_ARGS];
-    int argc;
-} PortalCommand;
-
-// Forward declarations para la shell Portal
-void portal_init(void);
-void portal_print_prompt(void);
-void portal_parse_command(char* input, PortalCommand* cmd);
-int portal_execute_command(PortalCommand* cmd);
-void portal_display_welcome(void);
-
-// Constantes para comandos de Portal Shell
-#define CMD_UNKNOWN    0
-#define CMD_PROCESS    1
-#define CMD_HELP       2
-#define CMD_CLEAR      3
-#define CMD_EXIT       4
-#define CMD_VERSION    5
-#define CMD_ABOUT      6
-
 // Comparar dos cadenas
 int strcmp(const char* s1, const char* s2) {
     while (*s1 && (*s1 == *s2)) {
@@ -379,7 +390,32 @@ void process_command(char* cmd) {
     // Procesar el comando según su tipo
     switch (command_type) {
         case CMD_PROCESS:
-            if (arg_start && strcmp(arg_start, "-l") == 0) {
+            if (!arg_start) {
+                print(CONSOLE_START_X, cursor_y, "Uso: process -l|-k|-r [pid|nombre]", 0x0C);
+                cursor_y++;
+                break;
+            }
+
+            // Extraer la opción (-l, -k, -r)
+            char option[3] = {0};
+            char* target = NULL;
+
+            // Extraer la opción
+            if (arg_start[0] == '-' && arg_start[1]) {
+                option[0] = '-';
+                option[1] = arg_start[1];
+                option[2] = '\0';
+
+                // Buscar el objetivo después de la opción
+                char* opt_end = arg_start + 2;
+                while (*opt_end == ' ') opt_end++;
+
+                if (*opt_end) {
+                    target = opt_end;
+                }
+            }
+
+            if (strcmp(option, "-l") == 0) {
                 // Listar procesos activos
                 print(CONSOLE_START_X, cursor_y, "Procesos activos (PID, Nombre, Estado):", CONSOLE_PROMPT_COLOR);
                 cursor_y++;
@@ -399,8 +435,130 @@ void process_command(char* cmd) {
 
                     cursor_y++;
                 }
+            } else if (strcmp(option, "-k") == 0) {
+                // Matar proceso por PID o nombre
+                if (!target) {
+                    print(CONSOLE_START_X, cursor_y, "Error: Debes especificar un PID o nombre de proceso", 0x0C);
+                    cursor_y++;
+                    break;
+                }
+
+                // Verificar si es un PID (número)
+                uint8_t is_pid = 1;
+                for (int i = 0; target[i]; i++) {
+                    if (target[i] < '0' || target[i] > '9') {
+                        is_pid = 0;
+                        break;
+                    }
+                }
+
+                if (is_pid) {
+                    // Convertir string a número
+                    uint8_t pid = 0;
+                    for (int i = 0; target[i]; i++) {
+                        pid = pid * 10 + (target[i] - '0');
+                    }
+
+                    if (pid < process_count) {
+                        if (processes[pid].status == PROCESS_RUNNING) {
+                            kill_process(pid);
+                            print(CONSOLE_START_X, cursor_y, "Proceso detenido: ", CONSOLE_TEXT_COLOR);
+                            print(CONSOLE_START_X + 17, cursor_y, processes[pid].name, 0x0A);
+                        } else {
+                            print(CONSOLE_START_X, cursor_y, "El proceso ya está detenido: ", CONSOLE_TEXT_COLOR);
+                            print(CONSOLE_START_X + 28, cursor_y, processes[pid].name, 0x0C);
+                        }
+                    } else {
+                        print(CONSOLE_START_X, cursor_y, "Error: PID inválido", 0x0C);
+                    }
+                } else {
+                    // Buscar por nombre
+                    uint8_t found = 0;
+                    for (uint8_t i = 0; i < process_count; i++) {
+                        if (strcmp(processes[i].name, target) == 0) {
+                            if (processes[i].status == PROCESS_RUNNING) {
+                                kill_process(i);
+                                print(CONSOLE_START_X, cursor_y, "Proceso detenido: ", CONSOLE_TEXT_COLOR);
+                                print(CONSOLE_START_X + 17, cursor_y, processes[i].name, 0x0A);
+                            } else {
+                                print(CONSOLE_START_X, cursor_y, "El proceso ya está detenido: ", CONSOLE_TEXT_COLOR);
+                                print(CONSOLE_START_X + 28, cursor_y, processes[i].name, 0x0C);
+                            }
+                            found = 1;
+                            break;
+                        }
+                    }
+
+                    if (!found) {
+                        print(CONSOLE_START_X, cursor_y, "Error: Proceso no encontrado: ", CONSOLE_TEXT_COLOR);
+                        print(CONSOLE_START_X + 31, cursor_y, target, 0x0C);
+                    }
+                }
+                cursor_y++;
+            } else if (strcmp(option, "-r") == 0) {
+                // Reanudar proceso por PID o nombre
+                if (!target) {
+                    print(CONSOLE_START_X, cursor_y, "Error: Debes especificar un PID o nombre de proceso", 0x0C);
+                    cursor_y++;
+                    break;
+                }
+
+                // Verificar si es un PID (número)
+                uint8_t is_pid = 1;
+                for (int i = 0; target[i]; i++) {
+                    if (target[i] < '0' || target[i] > '9') {
+                        is_pid = 0;
+                        break;
+                    }
+                }
+
+                if (is_pid) {
+                    // Convertir string a número
+                    uint8_t pid = 0;
+                    for (int i = 0; target[i]; i++) {
+                        pid = pid * 10 + (target[i] - '0');
+                    }
+
+                    if (pid < process_count) {
+                        if (processes[pid].status == PROCESS_STOPPED) {
+                            processes[pid].status = PROCESS_RUNNING;
+                            active_processes++;
+                            print(CONSOLE_START_X, cursor_y, "Proceso reanudado: ", CONSOLE_TEXT_COLOR);
+                            print(CONSOLE_START_X + 19, cursor_y, processes[pid].name, 0x0A);
+                        } else {
+                            print(CONSOLE_START_X, cursor_y, "El proceso ya está activo: ", CONSOLE_TEXT_COLOR);
+                            print(CONSOLE_START_X + 27, cursor_y, processes[pid].name, 0x0C);
+                        }
+                    } else {
+                        print(CONSOLE_START_X, cursor_y, "Error: PID inválido", 0x0C);
+                    }
+                } else {
+                    // Buscar por nombre
+                    uint8_t found = 0;
+                    for (uint8_t i = 0; i < process_count; i++) {
+                        if (strcmp(processes[i].name, target) == 0) {
+                            if (processes[i].status == PROCESS_STOPPED) {
+                                processes[i].status = PROCESS_RUNNING;
+                                active_processes++;
+                                print(CONSOLE_START_X, cursor_y, "Proceso reanudado: ", CONSOLE_TEXT_COLOR);
+                                print(CONSOLE_START_X + 19, cursor_y, processes[i].name, 0x0A);
+                            } else {
+                                print(CONSOLE_START_X, cursor_y, "El proceso ya está activo: ", CONSOLE_TEXT_COLOR);
+                                print(CONSOLE_START_X + 27, cursor_y, processes[i].name, 0x0C);
+                            }
+                            found = 1;
+                            break;
+                        }
+                    }
+
+                    if (!found) {
+                        print(CONSOLE_START_X, cursor_y, "Error: Proceso no encontrado: ", CONSOLE_TEXT_COLOR);
+                        print(CONSOLE_START_X + 31, cursor_y, target, 0x0C);
+                    }
+                }
+                cursor_y++;
             } else {
-                print(CONSOLE_START_X, cursor_y, "Uso: process -l (listar procesos)", 0x0C);
+                print(CONSOLE_START_X, cursor_y, "Uso: process -l|-k|-r [pid|nombre]", 0x0C);
                 cursor_y++;
             }
             break;
@@ -408,17 +566,33 @@ void process_command(char* cmd) {
         case CMD_HELP:
             print(CONSOLE_START_X, cursor_y, "Comandos disponibles:", CONSOLE_PROMPT_COLOR);
             cursor_y++;
-            print(CONSOLE_START_X + 2, cursor_y, "process -l  : Listar procesos activos", CONSOLE_TEXT_COLOR);
+            print(CONSOLE_START_X + 2, cursor_y, "process -l        : Listar procesos activos", CONSOLE_TEXT_COLOR);
             cursor_y++;
-            print(CONSOLE_START_X + 2, cursor_y, "clear       : Limpiar pantalla", CONSOLE_TEXT_COLOR);
+            print(CONSOLE_START_X + 2, cursor_y, "process -k pid/nom: Detener un proceso específico", CONSOLE_TEXT_COLOR);
             cursor_y++;
-            print(CONSOLE_START_X + 2, cursor_y, "help        : Mostrar esta ayuda", CONSOLE_TEXT_COLOR);
+            print(CONSOLE_START_X + 2, cursor_y, "process -r pid/nom: Iniciar/reanudar un proceso", CONSOLE_TEXT_COLOR);
+            cursor_y++;
+            print(CONSOLE_START_X + 2, cursor_y, "clear             : Limpiar pantalla", CONSOLE_TEXT_COLOR);
+            cursor_y++;
+            print(CONSOLE_START_X + 2, cursor_y, "help              : Mostrar esta ayuda", CONSOLE_TEXT_COLOR);
+            cursor_y++;
+            print(CONSOLE_START_X + 2, cursor_y, "exit              : Salir de Portal Shell", CONSOLE_TEXT_COLOR);
+            cursor_y++;
+            print(CONSOLE_START_X + 2, cursor_y, "version           : Mostrar version de Portal", CONSOLE_TEXT_COLOR);
+            cursor_y++;
+            print(CONSOLE_START_X + 2, cursor_y, "about             : Informacion sobre Portal Shell", CONSOLE_TEXT_COLOR);
             cursor_y++;
             break;
 
         case CMD_CLEAR:
             clear_region(CONSOLE_START_Y + 1, CONSOLE_END_Y, CONSOLE_TEXT_COLOR);
             cursor_y = CONSOLE_START_Y + 1;
+            break;
+
+        case CMD_EXIT:
+            print(CONSOLE_START_X, cursor_y, "Saliendo de Portal Shell...", CONSOLE_PROMPT_COLOR);
+            cursor_y++;
+            portal_command_ready = -1;  // Señal especial para salir
             break;
 
         default:
@@ -519,9 +693,96 @@ void process_counter(uint64_t ticks) {
     }
 }
 
-// Proceso de consola
+// Proceso dedicado para la Shell Portal
+void process_portal(uint64_t ticks) {
+    static int portal_initialized = 0;
+    static int exit_requested = 0;
+
+    // Inicializar Portal si es la primera vez
+    if (!portal_initialized) {
+        portal_init();
+        portal_initialized = 1;
+        print(CONSOLE_START_X, CONSOLE_STATUS_LINE, "Estado: Consola y Portal Shell activos - Listo para recibir comandos", 0x0A);
+    }
+
+    // Verificar si hay una señal para salir de Portal
+    if (portal_command_ready == -1) {
+        // Marcar que se solicitó salir para limpieza posterior
+        exit_requested = 1;
+        // Restablecer la bandera
+        portal_command_ready = 0;
+
+        // Actualizar barra de estado
+        clear_region(0, CONSOLE_STATUS_LINE, 0x07);
+        print(0, CONSOLE_STATUS_LINE, "Estado: Consola basica activa - Escribe 'portal' para iniciar la shell", 0x0E);
+
+        // Limpiar área de portal y mostrar consola básica
+        clear_region(CONSOLE_START_Y, CONSOLE_END_Y, CONSOLE_TEXT_COLOR);
+        cursor_y = CONSOLE_START_Y + 1;
+        print(CONSOLE_START_X, cursor_y, "> ", CONSOLE_PROMPT_COLOR);
+        buffer_position = 0;
+        input_buffer[0] = '\0';
+        set_cursor(CONSOLE_START_X + 2, cursor_y);
+
+        // Detener este proceso
+        for (uint8_t i = 0; i < process_count; i++) {
+            if (strcmp(processes[i].name, "Portal") == 0) {
+                kill_process(i);
+                break;
+            }
+        }
+        return;
+    }
+
+    // Verificar si hay un comando para procesar (solo si no estamos saliendo)
+    if (!exit_requested && portal_command_ready) {
+        // Copiar el comando del buffer compartido
+        int i;
+        for (i = 0; i < MAX_COMMAND_LENGTH && portal_command_buffer[i]; i++) {
+            command_buffer[i] = portal_command_buffer[i];
+        }
+        command_buffer[i] = '\0';
+
+        // Limpiar bandera
+        portal_command_ready = 0;
+
+        // Crear estructura de comando y ejecutarlo
+        PortalCommand cmd;
+        portal_parse_command(command_buffer, &cmd);
+        portal_execute_command(&cmd);
+
+        // Mostrar nuevo prompt después de procesar
+        if (cursor_y >= CONSOLE_END_Y) {
+            cursor_y = CONSOLE_START_Y + 1;
+            clear_region(CONSOLE_START_Y + 1, CONSOLE_END_Y, CONSOLE_TEXT_COLOR);
+        }
+        portal_print_prompt();
+    }
+}
+
+// Declaración adelantada para pit_tick
+void pit_tick(void);
+
+// Función para enviar un comando desde la consola a Portal
+void send_to_portal(char* command) {
+    // Copiar el comando al buffer compartido
+    int i;
+    for (i = 0; i < MAX_COMMAND_LENGTH && command[i]; i++) {
+        portal_command_buffer[i] = command[i];
+    }
+    portal_command_buffer[i] = '\0';
+
+    // Señalizar que hay un comando listo
+    portal_command_ready = 1;
+}
+
+// Proceso de consola (modificado para comunicarse con Portal)
 void process_console(uint64_t ticks) {
+    // Variables estáticas para tracking del estado de Portal
     static int last_key_check = 0;
+    static int last_portal_check = 0;
+    static int portal_running = 0;
+    static int portal_process_id = -1;
 
     // Verificar si hay una tecla presionada cada cierto número de ticks
     if (ticks - last_key_check >= 2) { // Reducir la frecuencia de verificación
@@ -532,79 +793,35 @@ void process_console(uint64_t ticks) {
             process_key(scancode);
         }
     }
-}
 
-// Procesar entrada de teclado
-void process_key(uint8_t scancode) {
-    // Solo procesamos las teclas presionadas (no liberadas)
-    if (scancode & 0x80) return;
+    // Verificar si Portal tiene un comando listo para procesar
+    if (ticks - last_portal_check >= 5) {
+        last_portal_check = ticks;
 
-    switch (scancode) {
-        case ENTER:
-            // Procesar el comando
-            input_buffer[buffer_position] = '\0';
+        // Verificar si Portal está aún activo
+        if (portal_process_id >= 0 && portal_process_id < process_count) {
+            portal_running = (processes[portal_process_id].status == PROCESS_RUNNING);
+        } else {
+            portal_running = 0;
+        }
 
-            // Limpiar línea actual y mostrar el comando completo
-            print(CONSOLE_START_X, cursor_y, "                                                                                ", CONSOLE_TEXT_COLOR);
-            print(CONSOLE_START_X, cursor_y, "> ", CONSOLE_PROMPT_COLOR);
-            print(CONSOLE_START_X + 2, cursor_y, input_buffer, CONSOLE_TEXT_COLOR);
-
-            // Crear una nueva línea para la salida
-            cursor_y++;
-            if (cursor_y >= CONSOLE_END_Y) {
-                // Si llegamos al final del área de consola, desplazamos todo el contenido
-                // Por ahora simplemente volvemos a la primera línea después del título
-                cursor_y = CONSOLE_START_Y + 1;
-                clear_region(CONSOLE_START_Y + 1, CONSOLE_END_Y, CONSOLE_TEXT_COLOR);
+        if (portal_command_ready) {
+            // Procesar el comando en Portal
+            int i;
+            for (i = 0; i < MAX_COMMAND_LENGTH && portal_command_buffer[i]; i++) {
+                command_buffer[i] = portal_command_buffer[i];
             }
+            command_buffer[i] = '\0';
 
-            // Procesar el comando ingresado si no está vacío
-            if (buffer_position > 0) {
-                process_command(input_buffer);
+            // Limpiar bandera
+            portal_command_ready = 0;
+
+            // Enviar comando para procesar en Portal
+            if (portal_running) {
+                send_to_portal(command_buffer);
             }
-
-            // Crear una nueva línea para el siguiente prompt
-            if (cursor_y >= CONSOLE_END_Y) {
-                cursor_y = CONSOLE_START_Y + 1;
-                clear_region(CONSOLE_START_Y + 1, CONSOLE_END_Y, CONSOLE_TEXT_COLOR);
-            }
-
-            // Nuevo prompt
-            print(CONSOLE_START_X, cursor_y, "> ", CONSOLE_PROMPT_COLOR);
-            buffer_position = 0;
-            input_buffer[0] = '\0';
-            set_cursor(CONSOLE_START_X + 2, cursor_y);
-            break;
-
-        case BACKSPACE:
-            if (buffer_position > 0) {
-                buffer_position--;
-                input_buffer[buffer_position] = '\0';
-
-                // Redibuja toda la línea para mostrar el cambio
-                update_console_line();
-            }
-            break;
-
-        default:
-            // Usar nuestra función mejorada de mapeo de scancodes
-            char c = scancode_to_ascii(scancode);
-
-            if (c != 0 && buffer_position < MAX_COMMAND_LENGTH) {
-                input_buffer[buffer_position] = c;
-                buffer_position++;
-                input_buffer[buffer_position] = '\0';
-
-                // Redibuja toda la línea con el nuevo carácter
-                update_console_line();
-            }
-            break;
+        }
     }
-}
-
-// Actualiza el tick count del PIT
-void pit_tick() {
-    pit_ticks++;
 }
 
 // Punto de entrada del kernel 64-bit
@@ -631,7 +848,7 @@ void kernel_main() {
     // Inicializar el temporizador
     init_pit(PIT_TICKS_PER_SECOND);
 
-    // Crear procesos iniciales - La consola es ahora el proceso 1 (PID 0)
+    // Crear procesos iniciales - Portal no se inicia automáticamente
     create_process("Console", process_console);
     create_process("Heartbeat", process_heartbeat);
     create_process("Counter", process_counter);
@@ -658,11 +875,11 @@ void kernel_main() {
     // Línea divisoria
     print(0, 12, "-------------------------------------------------------------------------------", 0x07);
 
-    // Inicializar la consola
+    // Inicializar la consola básica
     init_console();
 
     // Status bar
-    print(0, CONSOLE_STATUS_LINE, "Estado: Consola basica activa - Listo para recibir comandos", 0x0A);
+    print(0, CONSOLE_STATUS_LINE, "Estado: Consola basica activa - Escribe 'portal' para iniciar la shell", 0x0E);
     print(0, CONSOLE_STATUS_LINE + 1, "-------------------------------------------------------------------------------", 0x07);
 
     // Footer con timestamp y heartbeat
@@ -738,70 +955,72 @@ void portal_parse_command(char* input, PortalCommand* cmd) {
     }
     cmd->command[i] = '\0';
 
-    // Extraer el nombre del comando (primera palabra)
-    char* token = input;
-    char* space = input;
-
-    // Buscar el primer espacio
-    while (*space && *space != ' ') space++;
-
-    // Si hay espacio, lo reemplazamos con nulo temporalmente
-    int has_args = 0;
-    if (*space == ' ') {
-        *space = '\0';
-        has_args = 1;
+    // Obtener el primer token (comando)
+    for (i = 0; i < MAX_COMMAND_LENGTH && input[i] && input[i] != ' '; i++) {
+        cmd->args[0][i] = input[i];
     }
-
-    // El primer token es el nombre del comando
-    cmd->args[0] = token;
+    cmd->args[0][i] = '\0';
     cmd->argc = 1;
 
-    // Si no hay argumentos, terminamos
-    if (!has_args) return;
+    // Buscar el primer espacio
+    char* space = input;
+    while (*space && *space != ' ') space++;
 
-    // Restaurar el espacio
-    *space = ' ';
+    // Si no hay espacio, no hay argumentos
+    if (*space == '\0') {
+        return;
+    }
+
+    // Marcar el fin del comando (ahora trabajamos con una copia)
+    *space = '\0';
 
     // Procesar los argumentos
-    token = space + 1;
+    char* token = space + 1;
 
-    // Saltear espacios iniciales en los argumentos
+    // Saltear espacios iniciales
     while (*token == ' ') token++;
 
-    // Si no quedan argumentos después de los espacios, terminamos
-    if (*token == '\0') return;
+    // Si no hay más caracteres, no hay argumentos
+    if (*token == '\0') {
+        return;
+    }
 
-    // Extraer argumentos
-    int arg_index = 1; // Empezamos en 1 porque el 0 es el comando
-    char* arg_start = token;
+    // El siguiente token es el primer argumento
+    i = 0;
+    while (*token && *token != ' ' && i < MAX_COMMAND_LENGTH) {
+        cmd->args[1][i++] = *token++;
+    }
+    cmd->args[1][i] = '\0';
+    cmd->argc = 2;
 
-    while (*token && arg_index < PORTAL_MAX_ARGS) {
-        // Si encontramos un espacio, marcamos el final del argumento
-        if (*token == ' ') {
-            *token = '\0';
-            cmd->args[arg_index++] = arg_start;
+    // Si hay más texto después, podría haber más argumentos
+    if (*token == ' ') {
+        // Procesar argumentos adicionales (a partir del tercero)
+        int arg_idx = 2;
 
-            // Buscar el siguiente argumento
-            token++;
+        while (*token && arg_idx < PORTAL_MAX_ARGS) {
+            // Saltar espacios
             while (*token == ' ') token++;
 
-            // Si no hay más texto, terminamos
+            // Si llegamos al final, salir
             if (*token == '\0') break;
 
-            // Nuevo inicio de argumento
-            arg_start = token;
-        } else {
-            token++;
+            // Guardar el argumento
+            i = 0;
+            while (*token && *token != ' ' && i < MAX_COMMAND_LENGTH) {
+                cmd->args[arg_idx][i++] = *token++;
+            }
+            cmd->args[arg_idx][i] = '\0';
+            arg_idx++;
+
+            // Si encontramos un espacio, continuar con el siguiente argumento
+            if (*token == ' ') {
+                token++;
+            }
         }
-    }
 
-    // Añadir el último argumento si queda alguno
-    if (*arg_start && arg_index < PORTAL_MAX_ARGS) {
-        cmd->args[arg_index++] = arg_start;
+        cmd->argc = arg_idx;
     }
-
-    // Actualizar el contador de argumentos
-    cmd->argc = arg_index;
 }
 
 // Ejecuta un comando procesado de Portal
@@ -819,17 +1038,27 @@ int portal_execute_command(PortalCommand* cmd) {
     }
 
     if (strcmp(cmd->args[0], "help") == 0) {
+        // Limpiamos primero para asegurar que hay espacio suficiente
+        clear_region(CONSOLE_START_Y + 1, CONSOLE_END_Y, CONSOLE_TEXT_COLOR);
+        cursor_y = CONSOLE_START_Y + 1;
+
         print(CONSOLE_START_X, cursor_y, "Comandos de Portal Shell:", CONSOLE_PROMPT_COLOR);
         cursor_y++;
-        print(CONSOLE_START_X + 2, cursor_y, "process -l  : Listar procesos activos", CONSOLE_TEXT_COLOR);
+        print(CONSOLE_START_X + 2, cursor_y, "process -l        : Listar procesos activos", CONSOLE_TEXT_COLOR);
         cursor_y++;
-        print(CONSOLE_START_X + 2, cursor_y, "clear       : Limpiar pantalla", CONSOLE_TEXT_COLOR);
+        print(CONSOLE_START_X + 2, cursor_y, "process -k pid/nom: Detener un proceso específico", CONSOLE_TEXT_COLOR);
         cursor_y++;
-        print(CONSOLE_START_X + 2, cursor_y, "help        : Mostrar esta ayuda", CONSOLE_TEXT_COLOR);
+        print(CONSOLE_START_X + 2, cursor_y, "process -r pid/nom: Iniciar/reanudar un proceso", CONSOLE_TEXT_COLOR);
         cursor_y++;
-        print(CONSOLE_START_X + 2, cursor_y, "version     : Mostrar versión de Portal", CONSOLE_TEXT_COLOR);
+        print(CONSOLE_START_X + 2, cursor_y, "clear             : Limpiar pantalla", CONSOLE_TEXT_COLOR);
         cursor_y++;
-        print(CONSOLE_START_X + 2, cursor_y, "about       : Información sobre Portal Shell", CONSOLE_TEXT_COLOR);
+        print(CONSOLE_START_X + 2, cursor_y, "help              : Mostrar esta ayuda", CONSOLE_TEXT_COLOR);
+        cursor_y++;
+        print(CONSOLE_START_X + 2, cursor_y, "exit              : Salir de Portal Shell", CONSOLE_TEXT_COLOR);
+        cursor_y++;
+        print(CONSOLE_START_X + 2, cursor_y, "version           : Mostrar version de Portal", CONSOLE_TEXT_COLOR);
+        cursor_y++;
+        print(CONSOLE_START_X + 2, cursor_y, "about             : Informacion sobre Portal Shell", CONSOLE_TEXT_COLOR);
         cursor_y++;
         return 1;
     }
@@ -848,11 +1077,33 @@ int portal_execute_command(PortalCommand* cmd) {
         return 1;
     }
 
+    if (strcmp(cmd->args[0], "exit") == 0) {
+        print(CONSOLE_START_X, cursor_y, "Saliendo de Portal Shell...", CONSOLE_PROMPT_COLOR);
+        cursor_y++;
+        portal_command_ready = -1;  // Señal especial para salir
+        return 1;
+    }
+
     if (strcmp(cmd->args[0], "process") == 0) {
-        // Verificar si se especificó el argumento -l
-        if (cmd->argc > 1 && strcmp(cmd->args[1], "-l") == 0) {
+        // Verificar opciones de proceso
+        if (cmd->argc < 2) {
+            print(CONSOLE_START_X, cursor_y, "Uso: process -l|-k|-r [pid|nombre]", 0x0C);
+            cursor_y++;
+            return 1;
+        }
+
+        // Comando process -l
+        if (strcmp(cmd->args[1], "-l") == 0) {
             print(CONSOLE_START_X, cursor_y, "Procesos activos (PID, Nombre, Estado):", CONSOLE_PROMPT_COLOR);
             cursor_y++;
+
+            // Asegurar que hay suficiente espacio para mostrar la lista
+            if (cursor_y + process_count >= CONSOLE_END_Y) {
+                clear_region(CONSOLE_START_Y + 1, CONSOLE_END_Y, CONSOLE_TEXT_COLOR);
+                cursor_y = CONSOLE_START_Y + 1;
+                print(CONSOLE_START_X, cursor_y, "Procesos activos (PID, Nombre, Estado):", CONSOLE_PROMPT_COLOR);
+                cursor_y++;
+            }
 
             for (uint8_t i = 0; i < process_count; i++) {
                 char pid_str[4];
@@ -868,10 +1119,144 @@ int portal_execute_command(PortalCommand* cmd) {
                 }
                 cursor_y++;
             }
-        } else {
-            print(CONSOLE_START_X, cursor_y, "Uso: process -l (listar procesos)", 0x0C);
-            cursor_y++;
+            return 1;
         }
+
+        // Comando process -k (matar proceso)
+        if (strcmp(cmd->args[1], "-k") == 0) {
+            if (cmd->argc < 3) {
+                print(CONSOLE_START_X, cursor_y, "Error: Debes especificar un PID o nombre de proceso", 0x0C);
+                cursor_y++;
+                return 1;
+            }
+
+            char* target = cmd->args[2];
+
+            // Verificar si es un PID (número)
+            uint8_t is_pid = 1;
+            for (int i = 0; target[i]; i++) {
+                if (target[i] < '0' || target[i] > '9') {
+                    is_pid = 0;
+                    break;
+                }
+            }
+
+            if (is_pid) {
+                // Convertir string a número
+                uint8_t pid = 0;
+                for (int i = 0; target[i]; i++) {
+                    pid = pid * 10 + (target[i] - '0');
+                }
+
+                if (pid < process_count) {
+                    if (processes[pid].status == PROCESS_RUNNING) {
+                        kill_process(pid);
+                        print(CONSOLE_START_X, cursor_y, "Proceso detenido: ", CONSOLE_TEXT_COLOR);
+                        print(CONSOLE_START_X + 17, cursor_y, processes[pid].name, 0x0A);
+                    } else {
+                        print(CONSOLE_START_X, cursor_y, "El proceso ya está detenido: ", CONSOLE_TEXT_COLOR);
+                        print(CONSOLE_START_X + 28, cursor_y, processes[pid].name, 0x0C);
+                    }
+                } else {
+                    print(CONSOLE_START_X, cursor_y, "Error: PID inválido", 0x0C);
+                }
+            } else {
+                // Buscar por nombre
+                uint8_t found = 0;
+                for (uint8_t i = 0; i < process_count; i++) {
+                    if (strcmp(processes[i].name, target) == 0) {
+                        if (processes[i].status == PROCESS_RUNNING) {
+                            kill_process(i);
+                            print(CONSOLE_START_X, cursor_y, "Proceso detenido: ", CONSOLE_TEXT_COLOR);
+                            print(CONSOLE_START_X + 17, cursor_y, processes[i].name, 0x0A);
+                        } else {
+                            print(CONSOLE_START_X, cursor_y, "El proceso ya está detenido: ", CONSOLE_TEXT_COLOR);
+                            print(CONSOLE_START_X + 28, cursor_y, processes[i].name, 0x0C);
+                        }
+                        found = 1;
+                        break;
+                    }
+                }
+
+                if (!found) {
+                    print(CONSOLE_START_X, cursor_y, "Error: Proceso no encontrado: ", CONSOLE_TEXT_COLOR);
+                    print(CONSOLE_START_X + 31, cursor_y, target, 0x0C);
+                }
+            }
+            cursor_y++;
+            return 1;
+        }
+
+        // Comando process -r (reanudar proceso)
+        if (strcmp(cmd->args[1], "-r") == 0) {
+            if (cmd->argc < 3) {
+                print(CONSOLE_START_X, cursor_y, "Error: Debes especificar un PID o nombre de proceso", 0x0C);
+                cursor_y++;
+                return 1;
+            }
+
+            char* target = cmd->args[2];
+
+            // Verificar si es un PID (número)
+            uint8_t is_pid = 1;
+            for (int i = 0; target[i]; i++) {
+                if (target[i] < '0' || target[i] > '9') {
+                    is_pid = 0;
+                    break;
+                }
+            }
+
+            if (is_pid) {
+                // Convertir string a número
+                uint8_t pid = 0;
+                for (int i = 0; target[i]; i++) {
+                    pid = pid * 10 + (target[i] - '0');
+                }
+
+                if (pid < process_count) {
+                    if (processes[pid].status == PROCESS_STOPPED) {
+                        processes[pid].status = PROCESS_RUNNING;
+                        active_processes++;
+                        print(CONSOLE_START_X, cursor_y, "Proceso reanudado: ", CONSOLE_TEXT_COLOR);
+                        print(CONSOLE_START_X + 19, cursor_y, processes[pid].name, 0x0A);
+                    } else {
+                        print(CONSOLE_START_X, cursor_y, "El proceso ya está activo: ", CONSOLE_TEXT_COLOR);
+                        print(CONSOLE_START_X + 27, cursor_y, processes[pid].name, 0x0C);
+                    }
+                } else {
+                    print(CONSOLE_START_X, cursor_y, "Error: PID inválido", 0x0C);
+                }
+            } else {
+                // Buscar por nombre
+                uint8_t found = 0;
+                for (uint8_t i = 0; i < process_count; i++) {
+                    if (strcmp(processes[i].name, target) == 0) {
+                        if (processes[i].status == PROCESS_STOPPED) {
+                            processes[i].status = PROCESS_RUNNING;
+                            active_processes++;
+                            print(CONSOLE_START_X, cursor_y, "Proceso reanudado: ", CONSOLE_TEXT_COLOR);
+                            print(CONSOLE_START_X + 19, cursor_y, processes[i].name, 0x0A);
+                        } else {
+                            print(CONSOLE_START_X, cursor_y, "El proceso ya está activo: ", CONSOLE_TEXT_COLOR);
+                            print(CONSOLE_START_X + 27, cursor_y, processes[i].name, 0x0C);
+                        }
+                        found = 1;
+                        break;
+                    }
+                }
+
+                if (!found) {
+                    print(CONSOLE_START_X, cursor_y, "Error: Proceso no encontrado: ", CONSOLE_TEXT_COLOR);
+                    print(CONSOLE_START_X + 31, cursor_y, target, 0x0C);
+                }
+            }
+            cursor_y++;
+            return 1;
+        }
+
+        // Opción de proceso desconocida
+        print(CONSOLE_START_X, cursor_y, "Uso: process -l|-k|-r [pid|nombre]", 0x0C);
+        cursor_y++;
         return 1;
     }
 
@@ -883,4 +1268,118 @@ int portal_execute_command(PortalCommand* cmd) {
     cursor_y++;
 
     return 0;
+}
+
+// Procesar entrada de teclado
+void process_key(uint8_t scancode) {
+    // Variables para control de Portal - AHORA COMPLETAMENTE GLOBALES para evitar pérdida de estado
+    static int portal_process_id = -1;
+    static int portal_running = 0;
+
+    // Solo procesamos las teclas presionadas (no liberadas)
+    if (scancode & 0x80) return;
+
+    // Diagnóstico: Mostrar scancode en hexadecimal (puede eliminarse o comentarse)
+    // char sc_hex[3];
+    // sc_hex[0] = "0123456789ABCDEF"[(scancode >> 4) & 0xF];
+    // sc_hex[1] = "0123456789ABCDEF"[scancode & 0xF];
+    // sc_hex[2] = '\0';
+    // print(70, 5, sc_hex, 0x0F);
+
+    switch (scancode) {
+        case ENTER:
+            // Procesar el comando
+            input_buffer[buffer_position] = '\0';
+
+            // Limpiar línea actual y mostrar el comando completo
+            print(CONSOLE_START_X, cursor_y, "                                                                                ", CONSOLE_TEXT_COLOR);
+            print(CONSOLE_START_X, cursor_y, "> ", CONSOLE_PROMPT_COLOR);
+            print(CONSOLE_START_X + 2, cursor_y, input_buffer, CONSOLE_TEXT_COLOR);
+
+            // Crear una nueva línea para la salida
+            cursor_y++;
+            if (cursor_y >= CONSOLE_END_Y) {
+                // Si llegamos al final del área de consola, desplazamos todo el contenido
+                cursor_y = CONSOLE_START_Y + 1;
+                clear_region(CONSOLE_START_Y + 1, CONSOLE_END_Y, CONSOLE_TEXT_COLOR);
+            }
+
+            // Si Portal está activo, enviamos comandos allí
+            if (portal_running) {
+                // Enviar el comando a Portal si no está vacío
+                if (buffer_position > 0) {
+                    // Verificar si el comando es "exit" para manejar adecuadamente
+                    if (strcmp(input_buffer, "exit") == 0) {
+                        portal_running = 0; // Desactivar Portal localmente
+                        portal_process_id = -1;
+                        portal_command_ready = -1;  // Señal para cerrar el proceso Portal
+                    } else {
+                        // Para otros comandos, solo los enviamos normalmente
+                        send_to_portal(input_buffer);
+                    }
+                }
+            } else {
+                // En modo consola básica
+                if (buffer_position > 0) {
+                    // Verificar si el comando es "portal" para iniciar la shell
+                    if (strcmp(input_buffer, "portal") == 0) {
+                        // Iniciar Portal como un proceso independiente
+                        portal_process_id = create_process("Portal", process_portal);
+                        portal_running = 1;
+                        print(CONSOLE_START_X, cursor_y, "Iniciando Portal Shell...", 0x0A);
+                        cursor_y++;
+                        // Actualizar barra de estado
+                        print(0, CONSOLE_STATUS_LINE, "Estado: Consola y Portal Shell activos - Listo para recibir comandos", 0x0A);
+                    } else {
+                        // En modo consola simple, solo imprimimos el texto ingresado
+                        print(CONSOLE_START_X, cursor_y, "Ingresaste: ", 0x07);
+                        print(CONSOLE_START_X + 12, cursor_y, input_buffer, 0x0E);
+                        cursor_y++;
+                    }
+                }
+            }
+
+            // Crear una nueva línea para el siguiente prompt
+            if (cursor_y >= CONSOLE_END_Y) {
+                cursor_y = CONSOLE_START_Y + 1;
+                clear_region(CONSOLE_START_Y + 1, CONSOLE_END_Y, CONSOLE_TEXT_COLOR);
+            }
+
+            // Nuevo prompt
+            print(CONSOLE_START_X, cursor_y, "> ", CONSOLE_PROMPT_COLOR);
+            buffer_position = 0;
+            input_buffer[0] = '\0';
+            set_cursor(CONSOLE_START_X + 2, cursor_y);
+            break;
+
+        case BACKSPACE:
+            if (buffer_position > 0) {
+                buffer_position--;
+                input_buffer[buffer_position] = '\0';
+
+                // Redibuja toda la línea para mostrar el cambio
+                update_console_line();
+            }
+            break;
+
+        default:
+            // Usar nuestra función mejorada de mapeo de scancodes
+            char c = scancode_to_ascii(scancode);
+
+            // Solo si tenemos un carácter válido y no superamos el límite
+            if (c != 0 && buffer_position < MAX_COMMAND_LENGTH) {
+                input_buffer[buffer_position] = c;
+                buffer_position++;
+                input_buffer[buffer_position] = '\0';
+
+                // Redibuja toda la línea con el nuevo carácter
+                update_console_line();
+            }
+            break;
+    }
+}
+
+// Actualiza el tick count del PIT
+void pit_tick(void) {
+    pit_ticks++;
 }
