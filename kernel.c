@@ -182,31 +182,30 @@ void uint64_to_hex(uint64_t value, char* buffer) {
 
 // Función para convertir número a string decimal
 void uint64_to_dec(uint64_t value, char* buffer) {
+    // Manejo especial para 0
     if (value == 0) {
         buffer[0] = '0';
         buffer[1] = '\0';
         return;
     }
-    
-    char temp[32];
+
+    // Calcular dígitos
+    char temp[21]; // Máximo 20 dígitos para uint64_t + terminador nulo
     int i = 0;
-    
+
     while (value > 0) {
         temp[i++] = '0' + (value % 10);
         value /= 10;
     }
-    
-    for (int j = 0; j < i; j++) {
-        buffer[j] = temp[i - 1 - j];
-    }
-    buffer[i] = '\0';
-}
 
-// Convertir un valor a una cadena con ceros a la izquierda
-void uint8_to_dec_padded(uint8_t value, char* buffer) {
-    buffer[0] = '0' + (value / 10);
-    buffer[1] = '0' + (value % 10);
-    buffer[2] = '\0';
+    // Invertir la cadena
+    int j;
+    for (j = 0; j < i; j++) {
+        buffer[j] = temp[i - j - 1];
+    }
+
+    // Añadir terminador nulo
+    buffer[j] = '\0';
 }
 
 // Detectar cantidad de RAM
@@ -223,6 +222,11 @@ uint8_t wait_for_key() {
 
     // Leer el scancode desde el puerto 0x60
     return inb(0x60);
+}
+
+// Función para esperar cualquier pulsación de tecla (alias para wait_for_key)
+uint8_t wait_for_keypress() {
+    return wait_for_key();
 }
 
 // Establecer la posición del cursor
@@ -448,9 +452,37 @@ void process_command(char* cmd) {
                 print(CONSOLE_START_X, cursor_y, "Procesos activos (PID, Nombre, Estado):", CONSOLE_PROMPT_COLOR);
                 cursor_y++;
 
-                for (uint8_t i = 0; i < process_count; i++) {
-                    char pid_str[4];
-                    uint64_to_dec(i, pid_str);
+                // Asegurar que hay suficiente espacio para mostrar la lista
+                if (cursor_y + process_count >= CONSOLE_END_Y) {
+                    clear_region(CONSOLE_START_Y + 1, CONSOLE_END_Y, CONSOLE_TEXT_COLOR);
+                    cursor_y = CONSOLE_START_Y + 1;
+                    print(CONSOLE_START_X, cursor_y, "Procesos activos (PID, Nombre, Estado):", CONSOLE_PROMPT_COLOR);
+                    cursor_y++;
+                }
+
+                for (uint8_t i = 0; i < process_count && i < MAX_PROCESSES; i++) {
+                    // Verificar que es un proceso válido
+                    if (processes[i].name[0] == '\0') {
+                        continue;
+                    }
+
+                    // Buffer más grande para el PID (hasta 3 dígitos + terminador nulo)
+                    char pid_str[5] = {0};
+
+                    // Conversión segura de PID a string
+                    if (i < 10) {
+                        pid_str[0] = '0' + i;
+                        pid_str[1] = '\0';
+                    } else if (i < 100) {
+                        pid_str[0] = '0' + (i / 10);
+                        pid_str[1] = '0' + (i % 10);
+                        pid_str[2] = '\0';
+                    } else {
+                        pid_str[0] = '0' + (i / 100);
+                        pid_str[1] = '0' + ((i / 10) % 10);
+                        pid_str[2] = '0' + (i % 10);
+                        pid_str[3] = '\0';
+                    }
 
                     print(CONSOLE_START_X + 2, cursor_y, pid_str, CONSOLE_TEXT_COLOR);
                     print(CONSOLE_START_X + 6, cursor_y, processes[i].name, CONSOLE_TEXT_COLOR);
@@ -460,9 +492,21 @@ void process_command(char* cmd) {
                     } else {
                         print(CONSOLE_START_X + 25, cursor_y, "Detenido", 0x0C); // Rojo para detenido
                     }
-
                     cursor_y++;
+
+                    // Verificar si estamos llegando al límite de la pantalla
+                    if (cursor_y >= CONSOLE_END_Y - 1) {
+                        print(CONSOLE_START_X, cursor_y, "Presiona una tecla para continuar...", 0x0F);
+                        wait_for_keypress();
+                        clear_region(CONSOLE_START_Y + 1, CONSOLE_END_Y, CONSOLE_TEXT_COLOR);
+                        cursor_y = CONSOLE_START_Y + 1;
+                    }
                 }
+
+                // Añadir una pausa después de mostrar todos los procesos
+                print(CONSOLE_START_X, cursor_y, "Presiona una tecla para continuar...", 0x0F);
+                wait_for_keypress();
+                cursor_y++;
             } else if (strcmp(option, "-k") == 0) {
                 // Matar proceso por PID o nombre
                 if (!target) {
@@ -634,6 +678,14 @@ void process_command(char* cmd) {
         cursor_y = CONSOLE_START_Y + 1;
         clear_region(CONSOLE_START_Y + 1, CONSOLE_END_Y, CONSOLE_TEXT_COLOR);
     }
+}
+
+// Convierte un uint8_t a una cadena decimal con relleno de ceros
+void uint8_to_dec_padded(uint8_t value, char* buffer) {
+    // Asegurarse de que siempre tenga 2 dígitos (rellenado con ceros)
+    buffer[0] = '0' + (value / 10) % 10;
+    buffer[1] = '0' + value % 10;
+    buffer[2] = '\0';
 }
 
 // Actualizar el contador de tiempo (timestamp)
@@ -1283,9 +1335,29 @@ int portal_execute_command(PortalCommand* cmd) {
                 cursor_y++;
             }
 
-            for (uint8_t i = 0; i < process_count; i++) {
-                char pid_str[4];
-                uint64_to_dec(i, pid_str);
+            for (uint8_t i = 0; i < process_count && i < MAX_PROCESSES; i++) {
+                // Verificar que es un proceso válido
+                if (processes[i].name[0] == '\0') {
+                    continue;
+                }
+
+                // Buffer más grande para el PID (hasta 3 dígitos + terminador nulo)
+                char pid_str[5] = {0};
+
+                // Conversión segura de PID a string
+                if (i < 10) {
+                    pid_str[0] = '0' + i;
+                    pid_str[1] = '\0';
+                } else if (i < 100) {
+                    pid_str[0] = '0' + (i / 10);
+                    pid_str[1] = '0' + (i % 10);
+                    pid_str[2] = '\0';
+                } else {
+                    pid_str[0] = '0' + (i / 100);
+                    pid_str[1] = '0' + ((i / 10) % 10);
+                    pid_str[2] = '0' + (i % 10);
+                    pid_str[3] = '\0';
+                }
 
                 print(CONSOLE_START_X + 2, cursor_y, pid_str, CONSOLE_TEXT_COLOR);
                 print(CONSOLE_START_X + 6, cursor_y, processes[i].name, CONSOLE_TEXT_COLOR);
@@ -1296,7 +1368,20 @@ int portal_execute_command(PortalCommand* cmd) {
                     print(CONSOLE_START_X + 25, cursor_y, "Detenido", 0x0C); // Rojo para detenido
                 }
                 cursor_y++;
+
+                // Verificar si estamos llegando al límite de la pantalla
+                if (cursor_y >= CONSOLE_END_Y - 1) {
+                    print(CONSOLE_START_X, cursor_y, "Presiona una tecla para continuar...", 0x0F);
+                    wait_for_keypress();
+                    clear_region(CONSOLE_START_Y + 1, CONSOLE_END_Y, CONSOLE_TEXT_COLOR);
+                    cursor_y = CONSOLE_START_Y + 1;
+                }
             }
+
+            // Añadir una pausa después de mostrar todos los procesos
+            print(CONSOLE_START_X, cursor_y, "Presiona una tecla para continuar...", 0x0F);
+            wait_for_keypress();
+            cursor_y++;
             return 1;
         }
 
