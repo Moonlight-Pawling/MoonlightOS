@@ -133,5 +133,4 @@ Este repositorio no aceptará commits de ningún tipo, por el simple hecho de se
 
 ## Nota Técnica
 
-Este proyecto fue desarrollado y probado en Nobara 41 (basado en Fedora) utilizando el IDE CLion de JetBrains.
-IA's usadas: Github Copilot (Chat GPT 4.1 y Claude Sonnet 3.7).
+Este proyecto fue desarrollado y probado en Nobara 41 (basado en Fedora) utilizando el IDE CLion de JetBrains, con ayuda de Github Copilot (OpenAI Chat GPT 4.1 y Anthropic Claude Sonnet 3.7).
