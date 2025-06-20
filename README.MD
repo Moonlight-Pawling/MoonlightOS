@@ -130,3 +130,8 @@ Este código es libre para ser utilizado, estudiado y modificado. Siéntase libr
 ## Colaboración
 
 Este repositorio no aceptará commits de ningún tipo, por el simple hecho de ser un proyecto educativo sin ninguna intención más allá de mi propio aprendizaje.
+
+## Nota Técnica
+
+Este proyecto fue desarrollado y probado en Nobara 41 (basado en Fedora) utilizando el IDE CLion de JetBrains.
+IA's usadas: Github Copilot (Chat GPT 4.1 y Claude Sonnet 3.7).
