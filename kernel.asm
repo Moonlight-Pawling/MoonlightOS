@@ -267,7 +267,7 @@ pd:
 section .text
 ; ===== FUNCIÓN DE DELAY =====
 delay_1s:
-    mov edi, 10000000
+    mov edi, 5000000
 .loop:
     nop
     nop

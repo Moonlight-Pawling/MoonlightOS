@@ -10,11 +10,10 @@ volatile uint16_t* video = (volatile uint16_t*)0xB8000;
 #define CONSOLE_HEIGHT 25
 #define CONSOLE_INFO_AREA_HEIGHT 10     // Área para información del sistema (parte superior)
 #define CONSOLE_STATUS_LINE 23          // Línea de estado (movida una línea más abajo)
-#define CONSOLE_STATUS_LINE 23          // Línea de estado (movida una línea más abajo)
 #define CONSOLE_FOOTER_LINE 24          // Línea de pie de página con heartbeat
 #define CONSOLE_START_X 0
 #define CONSOLE_START_Y 12              // Iniciamos la consola más arriba para evitar solapamiento
-#define CONSOLE_END_Y 20                // Última l��nea de la consola (reducida para dejar espacio de seguridad)
+#define CONSOLE_END_Y 23                // Extendemos el área de consola para mostrar más contenido
 #define CONSOLE_PROMPT_COLOR 0x0B
 #define CONSOLE_TEXT_COLOR 0x07
 #define MAX_COMMAND_LENGTH 78           // Dejamos espacio para el prompt "> "
@@ -69,6 +68,11 @@ void send_to_portal(char* command);
 #define MAX_PROCESSES 16
 #define PROCESS_RUNNING 1
 #define PROCESS_STOPPED 0
+
+// Posiciones fijas para indicadores en línea de footer
+#define FOOTER_RAMUSE_POS 2          // Posición para indicador de RAM
+#define FOOTER_PROCS_POS 20          // Posición para contador de procesos
+#define FOOTER_HEARTBEAT2_POS 40     // Posición para segundo heartbeat
 
 // Estructura de proceso
 typedef struct {
@@ -237,7 +241,7 @@ void update_console_line() {
         putchar(CONSOLE_START_X + 2 + i, cursor_y, ' ', CONSOLE_TEXT_COLOR);
     }
 
-    // Mostrar el prompt
+    // Mostrar el prompt en la posición correcta
     putchar(CONSOLE_START_X, cursor_y, '>', CONSOLE_PROMPT_COLOR);
     putchar(CONSOLE_START_X + 1, cursor_y, ' ', CONSOLE_PROMPT_COLOR);
 
@@ -266,12 +270,12 @@ void init_console() {
     // Limpiamos el área de consola primero
     clear_region(CONSOLE_START_Y, CONSOLE_END_Y, CONSOLE_TEXT_COLOR);
 
-    // Título del intérprete de comandos "Portal"
-    print(CONSOLE_START_X, CONSOLE_START_Y, "Portal v1.0 - Shell de MoonlightOS", CONSOLE_PROMPT_COLOR);
+    // Título fijo de la consola (ahora indica disponibilidad de Portal)
+    print(CONSOLE_START_X, CONSOLE_START_Y, "Shell Portal disponible, escriba 'portal' para ingresar a la shell", CONSOLE_PROMPT_COLOR);
 
     // Inicializamos el cursor debajo del título
     cursor_y = CONSOLE_START_Y + 1;
-    print(CONSOLE_START_X, cursor_y, "> ", CONSOLE_PROMPT_COLOR);  // Cambiamos "$ " por "> " como nuevo prompt
+    print(CONSOLE_START_X, cursor_y, "> ", CONSOLE_PROMPT_COLOR);
     buffer_position = 0;
     input_buffer[0] = '\0';
     set_cursor(CONSOLE_START_X + 2, cursor_y);
@@ -279,9 +283,33 @@ void init_console() {
 
 // Convertir scancode a ASCII considerando el teclado en español/latino
 char scancode_to_ascii(uint8_t scancode) {
+    // Esquema de diagnóstico - mostrar el scancode recibido
+    char debug_buffer[8];
+    uint8_t safe_scancode = scancode & 0x7F; // Quitar el bit de liberación para el diagnóstico
+
+    // Imprimir el código de escaneo en la esquina superior derecha (diagnóstico)
+    debug_buffer[0] = 'S';
+    debug_buffer[1] = 'C';
+    debug_buffer[2] = ':';
+    debug_buffer[3] = ' ';
+    debug_buffer[4] = "0123456789ABCDEF"[(safe_scancode >> 4) & 0xF];
+    debug_buffer[5] = "0123456789ABCDEF"[safe_scancode & 0xF];
+    debug_buffer[6] = ' ';
+    debug_buffer[7] = '\0';
+
+    // Mostrar en pantalla en la esquina superior derecha para diagnóstico
+    // Esta información puede ser valiosa para depurar problemas
+    print(70, 0, debug_buffer, 0x0F);
+
     // Ignorar release codes (bit 7 activado)
     if (scancode & 0x80) {
         return 0;
+    }
+
+    // Mapeo seguro que verifica un rango válido de scancodes
+    // Solo procesamos códigos entre 0x01 y 0x58 (códigos estándar del teclado PC)
+    if (scancode < 0x01 || scancode > 0x58) {
+        return 0; // Fuera de rango - ignorar
     }
 
     // Mapeo correcto para teclas principales
@@ -627,12 +655,13 @@ void update_timestamp() {
     uint8_to_dec_padded(minutes, m_str);
     uint8_to_dec_padded(seconds, s_str);
 
-    // Mostrar en pantalla
-    print(26, CONSOLE_FOOTER_LINE, h_str, 0x0E);
-    putchar(28, CONSOLE_FOOTER_LINE, ':', 0x07);
-    print(29, CONSOLE_FOOTER_LINE, m_str, 0x0E);
-    putchar(31, CONSOLE_FOOTER_LINE, ':', 0x07);
-    print(32, CONSOLE_FOOTER_LINE, s_str, 0x0E);
+    // Mostrar en pantalla (movido a la derecha)
+    print(60, CONSOLE_FOOTER_LINE, "Tiempo: ", 0x07);
+    print(68, CONSOLE_FOOTER_LINE, h_str, 0x0E);
+    putchar(70, CONSOLE_FOOTER_LINE, ':', 0x07);
+    print(71, CONSOLE_FOOTER_LINE, m_str, 0x0E);
+    putchar(73, CONSOLE_FOOTER_LINE, ':', 0x07);
+    print(74, CONSOLE_FOOTER_LINE, s_str, 0x0E);
 }
 
 // Funciones para el sistema de procesos
@@ -663,6 +692,19 @@ void kill_process(uint8_t pid) {
     if (pid >= process_count) return;
 
     if (processes[pid].status == PROCESS_RUNNING) {
+        // Limpieza visual según el tipo de proceso
+        if (strcmp(processes[pid].name, "RAMMonitor") == 0) {
+            // Limpiar área de RAMMonitor
+            for (int i = 0; i < 15; i++) {
+                putchar(FOOTER_RAMUSE_POS + i, CONSOLE_FOOTER_LINE, '-', 0x07);
+            }
+        } else if (strcmp(processes[pid].name, "ProcessCounter") == 0) {
+            // Limpiar área del contador de procesos
+            for (int i = 0; i < 15; i++) {
+                putchar(FOOTER_PROCS_POS + i, CONSOLE_FOOTER_LINE, '-', 0x07);
+            }
+        }
+
         processes[pid].status = PROCESS_STOPPED;
         active_processes--;
     }
@@ -693,6 +735,93 @@ void process_counter(uint64_t ticks) {
     }
 }
 
+// Proceso 3: Monitor de RAM
+void process_rammonitor(uint64_t ticks) {
+    static uint64_t last_update = 0;
+
+    // Actualizar cada segundo (50 ticks)
+    if (ticks - last_update >= PIT_TICKS_PER_SECOND) {
+        last_update = ticks;
+
+        // Limpiar el área primero en todos los casos
+        for (int i = 0; i < 15; i++) {
+            putchar(FOOTER_RAMUSE_POS + i, CONSOLE_FOOTER_LINE, '-', 0x07);
+        }
+
+        // Solo mostrar la información si el proceso está activo
+        // (aunque esta verificación es redundante ya que esta función
+        // solo se llama si el proceso está activo)
+        for (uint8_t i = 0; i < process_count; i++) {
+            if (strcmp(processes[i].name, "RAMMonitor") == 0 &&
+                processes[i].status == PROCESS_RUNNING) {
+                // Mostrar información de RAM
+                char ram_str[8];
+                uint64_to_dec(mapped_memory_mb, ram_str);
+
+                // Mostrar información actualizada
+                print(FOOTER_RAMUSE_POS, CONSOLE_FOOTER_LINE, "RAM:", 0x07);
+                print(FOOTER_RAMUSE_POS + 5, CONSOLE_FOOTER_LINE, ram_str, 0x0B);
+                print(FOOTER_RAMUSE_POS + 8, CONSOLE_FOOTER_LINE, "MB", 0x07);
+                break;
+            }
+        }
+    }
+}
+
+// Proceso 4: Monitor de Procesos
+void process_procmonitor(uint64_t ticks) {
+    static uint64_t last_update = 0;
+    static uint8_t last_process_count = 0;
+
+    // Actualizar cada segundo (50 ticks)
+    if (ticks - last_update >= PIT_TICKS_PER_SECOND || last_process_count != active_processes) {
+        last_update = ticks;
+        last_process_count = active_processes;
+
+        // Limpiar el área anterior
+        for (int i = 0; i < 15; i++) {
+            putchar(FOOTER_PROCS_POS + i, CONSOLE_FOOTER_LINE, '-', 0x07);
+        }
+
+        // Mostrar conteo de procesos
+        char proc_str[4];
+        uint64_to_dec(active_processes, proc_str);
+        print(FOOTER_PROCS_POS, CONSOLE_FOOTER_LINE, "Proc:", 0x07);
+        print(FOOTER_PROCS_POS + 6, CONSOLE_FOOTER_LINE, proc_str, 0x0A);
+
+        // Mostrar de total/activos
+        char total_str[4];
+        uint64_to_dec(process_count, total_str);
+        putchar(FOOTER_PROCS_POS + 8, CONSOLE_FOOTER_LINE, '/', 0x07);
+        print(FOOTER_PROCS_POS + 9, CONSOLE_FOOTER_LINE, total_str, 0x0E);
+    }
+}
+
+// Proceso 5: Segundo Heartbeat
+void process_heartbeat2(uint64_t ticks) {
+    char heartbeat[] = {'<', '/', '-', '\\'};  // Usar caracteres ASCII estándar
+
+    // Determinar color basado en la posición del ciclo
+    uint8_t color = 0x0C; // Color rojo por defecto
+
+    switch (ticks % 4) {
+        case 0: color = 0x0C; break; // Rojo (corazón)
+        case 1: color = 0x0D; break; // Magenta (diamante)
+        case 2: color = 0x0A; break; // Verde (trébol)
+        case 3: color = 0x0F; break; // Blanco brillante (pica)
+    }
+
+    // Limpiar área
+    for (int i = 0; i < 5; i++) {
+        putchar(FOOTER_HEARTBEAT2_POS + i, CONSOLE_FOOTER_LINE, '-', 0x07);
+    }
+
+    // Mostrar símbolo con color apropiado
+    putchar(FOOTER_HEARTBEAT2_POS, CONSOLE_FOOTER_LINE, '<', 0x07);
+    putchar(FOOTER_HEARTBEAT2_POS + 1, CONSOLE_FOOTER_LINE, heartbeat[ticks % 4], color);
+    putchar(FOOTER_HEARTBEAT2_POS + 2, CONSOLE_FOOTER_LINE, '>', 0x07);
+}
+
 // Proceso dedicado para la Shell Portal
 void process_portal(uint64_t ticks) {
     static int portal_initialized = 0;
@@ -702,7 +831,7 @@ void process_portal(uint64_t ticks) {
     if (!portal_initialized) {
         portal_init();
         portal_initialized = 1;
-        print(CONSOLE_START_X, CONSOLE_STATUS_LINE, "Estado: Consola y Portal Shell activos - Listo para recibir comandos", 0x0A);
+        print(CONSOLE_START_X, CONSOLE_STATUS_LINE, "Estado: Portal Shell activo", 0x0A);  // Mensaje más simple
     }
 
     // Verificar si hay una señal para salir de Portal
@@ -712,13 +841,22 @@ void process_portal(uint64_t ticks) {
         // Restablecer la bandera
         portal_command_ready = 0;
 
-        // Actualizar barra de estado
-        clear_region(0, CONSOLE_STATUS_LINE, 0x07);
-        print(0, CONSOLE_STATUS_LINE, "Estado: Consola basica activa - Escribe 'portal' para iniciar la shell", 0x0E);
+        // Mostrar mensaje de salida en la línea actual
+        print(CONSOLE_START_X, cursor_y, "Saliendo del intérprete de comandos Portal...", CONSOLE_PROMPT_COLOR);
+        cursor_y++;
 
-        // Limpiar área de portal y mostrar consola básica
-        clear_region(CONSOLE_START_Y, CONSOLE_END_Y, CONSOLE_TEXT_COLOR);
-        cursor_y = CONSOLE_START_Y + 1;
+        // Restaurar título de la consola básica sin limpiar toda la pantalla
+        print(CONSOLE_START_X, CONSOLE_START_Y, "Shell Portal disponible, escriba 'portal' para ingresar a la shell", CONSOLE_PROMPT_COLOR);
+
+        // También actualizamos la línea de estado para ser consistentes
+        print(0, CONSOLE_STATUS_LINE, "                                                                                ", 0x07);
+
+        // Posicionar el cursor para el siguiente prompt
+        if (cursor_y >= CONSOLE_END_Y) {
+            cursor_y = CONSOLE_START_Y + 1;
+        }
+
+        // Nuevo prompt
         print(CONSOLE_START_X, cursor_y, "> ", CONSOLE_PROMPT_COLOR);
         buffer_position = 0;
         input_buffer[0] = '\0';
@@ -728,6 +866,9 @@ void process_portal(uint64_t ticks) {
         for (uint8_t i = 0; i < process_count; i++) {
             if (strcmp(processes[i].name, "Portal") == 0) {
                 kill_process(i);
+                // Reiniciar el estado para la próxima ejecución
+                portal_initialized = 0;
+                exit_requested = 0;
                 break;
             }
         }
@@ -783,6 +924,7 @@ void process_console(uint64_t ticks) {
     static int last_portal_check = 0;
     static int portal_running = 0;
     static int portal_process_id = -1;
+    static int last_portal_status = 0;
 
     // Verificar si hay una tecla presionada cada cierto número de ticks
     if (ticks - last_key_check >= 2) { // Reducir la frecuencia de verificación
@@ -799,14 +941,50 @@ void process_console(uint64_t ticks) {
         last_portal_check = ticks;
 
         // Verificar si Portal está aún activo
-        if (portal_process_id >= 0 && portal_process_id < process_count) {
-            portal_running = (processes[portal_process_id].status == PROCESS_RUNNING);
-        } else {
+        int current_portal_status = 0;
+
+        // Encontrar el proceso Portal actual y verificar su estado
+        portal_process_id = -1; // Restablecer para buscar de nuevo
+        for (uint8_t i = 0; i < process_count; i++) {
+            if (strcmp(processes[i].name, "Portal") == 0) {
+                portal_process_id = i;
+                current_portal_status = (processes[i].status == PROCESS_RUNNING);
+                break;
+            }
+        }
+
+        // Si Portal acaba de ser detenido (por process -k por ejemplo)
+        if (portal_running && !current_portal_status) {
+            // Restaurar interfaz a consola básica
+            print(CONSOLE_START_X, CONSOLE_START_Y, "Shell Portal disponible, escriba 'portal' para ingresar a la shell", CONSOLE_PROMPT_COLOR);
+            //print(0, CONSOLE_STATUS_LINE, "Estado: Consola basica activa - Escribe 'portal' para iniciar la shell", 0x0E);
+
+            // Si el cursor está en posición inválida, reposicionarlo
+            if (cursor_y < CONSOLE_START_Y + 1 || cursor_y >= CONSOLE_END_Y) {
+                cursor_y = CONSOLE_START_Y + 1;
+            }
+
+            // Nuevo prompt en la posición actual
+            print(CONSOLE_START_X, cursor_y, "> ", CONSOLE_PROMPT_COLOR);
+            buffer_position = 0;
+            input_buffer[0] = '\0';
+            set_cursor(CONSOLE_START_X + 2, cursor_y);
+
+            // Actualizar el estado global para que process_key también sepa que Portal ya no está activo
             portal_running = 0;
         }
 
-        if (portal_command_ready) {
-            // Procesar el comando en Portal
+        // Actualizar el estado de Portal
+        portal_running = current_portal_status;
+        last_portal_status = current_portal_status;
+
+        // Si Portal está inactivo, no procesar comandos destinados a él
+        if (portal_command_ready && !portal_running) {
+            portal_command_ready = 0; // Limpiar la bandera si Portal no está activo
+        }
+        // Si está activo y hay comandos, procesarlos
+        else if (portal_command_ready && portal_running) {
+            // Copiar el comando del buffer compartido
             int i;
             for (i = 0; i < MAX_COMMAND_LENGTH && portal_command_buffer[i]; i++) {
                 command_buffer[i] = portal_command_buffer[i];
@@ -817,9 +995,7 @@ void process_console(uint64_t ticks) {
             portal_command_ready = 0;
 
             // Enviar comando para procesar en Portal
-            if (portal_running) {
-                send_to_portal(command_buffer);
-            }
+            send_to_portal(command_buffer);
         }
     }
 }
@@ -853,6 +1029,11 @@ void kernel_main() {
     create_process("Heartbeat", process_heartbeat);
     create_process("Counter", process_counter);
 
+    // Crear los nuevos procesos de monitorización para la línea de footer
+    create_process("RAMMonitor", process_rammonitor);
+    create_process("ProcMonitor", process_procmonitor);
+    create_process("Heartbeat2", process_heartbeat2);
+
     // Mostrar información técnica
     char mem_str[32];
     char mapped_mem_str[32];
@@ -879,11 +1060,12 @@ void kernel_main() {
     init_console();
 
     // Status bar
-    print(0, CONSOLE_STATUS_LINE, "Estado: Consola basica activa - Escribe 'portal' para iniciar la shell", 0x0E);
+    //print(0, CONSOLE_STATUS_LINE, "Estado: Consola basica activa - Escribe 'portal' para iniciar la shell", 0x0E);
     print(0, CONSOLE_STATUS_LINE + 1, "-------------------------------------------------------------------------------", 0x07);
 
-    // Footer con timestamp y heartbeat
-    print(0, CONSOLE_FOOTER_LINE, "Tiempo: ", 0x07);
+    // Footer con timestamp y heartbeat - Ahora movido a la derecha
+    print(60, CONSOLE_FOOTER_LINE, "Tiempo: ", 0x07);
+    update_timestamp(); // Actualizar inmediatamente para mostrar 00:00:00
 
     // Bucle principal del kernel
     uint64_t counter = 0;
@@ -904,17 +1086,15 @@ void kernel_main() {
 
 // Inicializa la shell Portal
 void portal_init(void) {
-    // Limpiamos el área de consola primero
-    clear_region(CONSOLE_START_Y, CONSOLE_END_Y, CONSOLE_TEXT_COLOR);
+    // Limpiamos el área de consola pero preservamos el título
+    clear_region(CONSOLE_START_Y + 1, CONSOLE_END_Y, CONSOLE_TEXT_COLOR);
 
-    // Título del intérprete de comandos "Portal"
-    print(CONSOLE_START_X, CONSOLE_START_Y, "Portal v" PORTAL_VERSION " - Shell de MoonlightOS", CONSOLE_PROMPT_COLOR);
+    // Cambiamos el título fijo por el título de Portal activado
+    clear_region(CONSOLE_START_Y, CONSOLE_START_Y, CONSOLE_TEXT_COLOR);
+    print(CONSOLE_START_X, CONSOLE_START_Y, "Shell Portal v" PORTAL_VERSION " - escriba 'help' para obtener ayuda", CONSOLE_PROMPT_COLOR);
 
-    // Mostrar información de bienvenida
-    portal_display_welcome();
-
-    // Inicializamos el cursor debajo del título
-    cursor_y = CONSOLE_START_Y + 2; // Una línea más abajo después de la bienvenida
+    // Inicializamos el cursor justo debajo del título (eliminada la línea de bienvenida)
+    cursor_y = CONSOLE_START_Y + 1; // Una línea más cercana al título (eliminada la bienvenida)
     portal_print_prompt();
     buffer_position = 0;
     input_buffer[0] = '\0';
@@ -980,18 +1160,16 @@ void portal_parse_command(char* input, PortalCommand* cmd) {
     // Saltear espacios iniciales
     while (*token == ' ') token++;
 
-    // Si no hay más caracteres, no hay argumentos
-    if (*token == '\0') {
-        return;
+    // Si no hay más caracteres, podría haber más argumentos
+    if (*token != '\0') {
+        // El siguiente token es el primer argumento
+        i = 0;
+        while (*token && *token != ' ' && i < MAX_COMMAND_LENGTH) {
+            cmd->args[1][i++] = *token++;
+        }
+        cmd->args[1][i] = '\0';
+        cmd->argc = 2;
     }
-
-    // El siguiente token es el primer argumento
-    i = 0;
-    while (*token && *token != ' ' && i < MAX_COMMAND_LENGTH) {
-        cmd->args[1][i++] = *token++;
-    }
-    cmd->args[1][i] = '\0';
-    cmd->argc = 2;
 
     // Si hay más texto después, podría haber más argumentos
     if (*token == ' ') {
@@ -1272,9 +1450,29 @@ int portal_execute_command(PortalCommand* cmd) {
 
 // Procesar entrada de teclado
 void process_key(uint8_t scancode) {
-    // Variables para control de Portal - AHORA COMPLETAMENTE GLOBALES para evitar pérdida de estado
-    static int portal_process_id = -1;
+    // Definimos c aquí para evitar problemas de ámbito
+    char c = 0;
+
+    // Verificar el estado actual del proceso Portal
     static int portal_running = 0;
+    static int portal_process_id = -1;
+
+    // Actualizar estado de Portal primero
+    int found_portal = 0;
+    for (uint8_t i = 0; i < process_count; i++) {
+        if (strcmp(processes[i].name, "Portal") == 0) {
+            portal_process_id = i;
+            portal_running = (processes[i].status == PROCESS_RUNNING);
+            found_portal = 1;
+            break;
+        }
+    }
+
+    // Si no se encuentra proceso Portal, desactivar
+    if (!found_portal) {
+        portal_process_id = -1;
+        portal_running = 0;
+    }
 
     // Solo procesamos las teclas presionadas (no liberadas)
     if (scancode & 0x80) return;
@@ -1323,13 +1521,41 @@ void process_key(uint8_t scancode) {
                 if (buffer_position > 0) {
                     // Verificar si el comando es "portal" para iniciar la shell
                     if (strcmp(input_buffer, "portal") == 0) {
-                        // Iniciar Portal como un proceso independiente
-                        portal_process_id = create_process("Portal", process_portal);
-                        portal_running = 1;
-                        print(CONSOLE_START_X, cursor_y, "Iniciando Portal Shell...", 0x0A);
+                        // Buscar si ya existe un proceso Portal detenido
+                        int existing_portal = -1;
+                        int portal_already_active = 0;
+
+                        for (uint8_t i = 0; i < process_count; i++) {
+                            if (strcmp(processes[i].name, "Portal") == 0) {
+                                existing_portal = i;
+                                portal_already_active = (processes[i].status == PROCESS_RUNNING);
+                                break;
+                            }
+                        }
+
+                        // Si existe, reactivarlo; si no, crear uno nuevo
+                        if (existing_portal >= 0) {
+                            if (!portal_already_active) {
+                                processes[existing_portal].status = PROCESS_RUNNING;
+                                active_processes++;
+                                portal_process_id = existing_portal;
+                                portal_running = 1;
+                                print(CONSOLE_START_X, cursor_y, "Reactivando Portal Shell...", 0x0A);
+                                // Actualizar UI a modo Portal
+                                print(CONSOLE_START_X, CONSOLE_START_Y, "Shell Portal v" PORTAL_VERSION " - escriba 'help' para obtener ayuda", CONSOLE_PROMPT_COLOR);
+                                print(0, CONSOLE_STATUS_LINE, "                                                                                ", 0x00);
+                            } else {
+                                print(CONSOLE_START_X, cursor_y, "Portal Shell ya está activo", 0x0E);
+                            }
+                        } else {
+                            // Iniciar Portal como un proceso independiente
+                            portal_process_id = create_process("Portal", process_portal);
+                            portal_running = 1;
+                            print(CONSOLE_START_X, cursor_y, "Iniciando Portal Shell...", 0x0A);
+                            // Eliminar el mensaje de estado para dar más espacio a la shell Portal
+                            print(0, CONSOLE_STATUS_LINE, "                                                                                ", 0x00);
+                        }
                         cursor_y++;
-                        // Actualizar barra de estado
-                        print(0, CONSOLE_STATUS_LINE, "Estado: Consola y Portal Shell activos - Listo para recibir comandos", 0x0A);
                     } else {
                         // En modo consola simple, solo imprimimos el texto ingresado
                         print(CONSOLE_START_X, cursor_y, "Ingresaste: ", 0x07);
@@ -1353,6 +1579,7 @@ void process_key(uint8_t scancode) {
             break;
 
         case BACKSPACE:
+        case 0x08: // Añadimos un scancode alternativo para el BACKSPACE que se usa en algunos teclados
             if (buffer_position > 0) {
                 buffer_position--;
                 input_buffer[buffer_position] = '\0';
@@ -1364,7 +1591,7 @@ void process_key(uint8_t scancode) {
 
         default:
             // Usar nuestra función mejorada de mapeo de scancodes
-            char c = scancode_to_ascii(scancode);
+            c = scancode_to_ascii(scancode);
 
             // Solo si tenemos un carácter válido y no superamos el límite
             if (c != 0 && buffer_position < MAX_COMMAND_LENGTH) {
