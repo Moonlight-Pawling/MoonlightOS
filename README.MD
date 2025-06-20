@@ -77,7 +77,6 @@ El script `build.sh` realiza las siguientes acciones:
 - `kernel.c` - Funciones principales del kernel en C
 - `linker.ld` - Script de enlazado para el kernel
 - `build.sh` - Script de compilación y ejecución
-- `fs.h` - Definiciones para el sistema de archivos (en desarrollo)
 
 ## Detalles técnicos
 
@@ -104,7 +103,7 @@ El script `build.sh` realiza las siguientes acciones:
 - Comandos básicos del sistema
 
 ### Monitores del Sistema
-- Monitorización de RAM
+- Monitorización de RAM (falsa, de momento)
 - Contador de procesos activos
 - Reloj del sistema
 
@@ -133,4 +132,4 @@ Este repositorio no aceptará commits de ningún tipo, por el simple hecho de se
 
 ## Nota Técnica
 
-Este proyecto fue desarrollado y probado en Nobara 41 (basado en Fedora) utilizando el IDE CLion de JetBrains, con ayuda de Github Copilot (OpenAI Chat GPT 4.1 y Anthropic Claude Sonnet 3.7).
+Este proyecto fue desarrollado y probado en Nobara 41 y 42 (Fedora-based) utilizando el IDE CLion de JetBrains, con ayuda de Github Copilot (OpenAI Chat GPT 4.1 y Anthropic Claude Sonnet 3.7).
